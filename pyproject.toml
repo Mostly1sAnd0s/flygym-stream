@@ -1,0 +1,40 @@
+[project]
+name = "flygym-stream"
+version = "0.1.0"
+description = "Server-side FlyGym simulation with headless GPU rendering, streamed as MJPEG over WebSocket to a thin browser client."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "flygym",
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.34,<1.0",
+    "pillow>=11,<13",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "warp-lang>=1.14,<1.15",
+    "mujoco_warp>=3.9,<3.10",
+]
+dev = [
+    "pytest>=9.0,<10.0",
+    "pytest-cov>=7.0,<8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+# Local checkout of flygym next to this project (see PLAN.md §4).
+flygym = { path = "../flygym", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+markers = [
+    "gpu: requires a working GL context / NVIDIA GPU (skip with -m 'not gpu')",
+    "network: talks to the live S3 asset bucket (skip with -m 'not network')",
+]
