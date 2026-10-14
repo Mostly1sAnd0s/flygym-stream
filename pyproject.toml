@@ -18,6 +18,7 @@ gpu = [
 dev = [
     "pytest>=9.0,<10.0",
     "pytest-cov>=7.0,<8.0",
+    "httpx>=0.27,<1.0",  # FastAPI TestClient (WS + HTTP)
 ]
 
 [build-system]
@@ -33,6 +34,7 @@ flygym = { path = "../flygym", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]  # lets test modules import shared helpers (importlib mode)
 addopts = "--import-mode=importlib -m 'not gpu and not network'"
 markers = [
     "gpu: requires a working GL context / NVIDIA GPU (skip with -m 'not gpu')",

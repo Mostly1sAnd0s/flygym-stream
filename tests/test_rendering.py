@@ -9,6 +9,7 @@ starts (mujoco reads the env at import time).
 from __future__ import annotations
 
 import io
+import threading
 
 import numpy as np
 import pytest
@@ -85,3 +86,34 @@ def test_offscreen_renderer_reset_makes_frame_due(gpu_scene_and_renderer) -> Non
         renderer.render_as_needed()  # consume due frames
     renderer.reset()
     assert renderer.render_as_needed() is True
+
+
+@pytest.mark.gpu
+def test_offscreen_renderer_cross_thread_like_serve() -> None:
+    """The serve() pattern: built on the main thread, rendered on the sim thread.
+
+    EGL contexts bind to the creating thread; OffscreenRenderer must create
+    the GL context lazily on the first render so eglMakeCurrent never runs
+    on a foreign thread (EGL_BAD_ACCESS).
+    """
+    scene = build_default_scene()
+    renderer = OffscreenRenderer(
+        scene, Config(width=320, height=240, output_fps=30))
+    errors: list[BaseException] = []
+
+    def work() -> None:
+        try:
+            for _ in range(30):
+                scene.step()
+            assert renderer.render_as_needed() is True
+            frame = renderer.render_frame()
+            assert frame.shape == (240, 320, 3)
+        except BaseException as err:  # noqa: BLE001 - surfaced below
+            errors.append(err)
+
+    worker = threading.Thread(target=work, name="render-test")
+    worker.start()
+    worker.join(timeout=120)
+    renderer.close()
+    assert not worker.is_alive()
+    assert not errors, errors

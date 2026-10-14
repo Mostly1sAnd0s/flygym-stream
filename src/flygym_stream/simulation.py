@@ -37,6 +37,10 @@ class Backend(ABC):
     name: str
     n_actuators: int
 
+    def __init__(self) -> None:
+        """Base: record applied inputs (test hooks + debugging)."""
+        self.inputs: list[InputMessage] = []
+
     @property
     @abstractmethod
     def time(self) -> float:
@@ -59,6 +63,7 @@ class MuJoCoBackend(Backend):
     """CPU stepping via MuJoCo, driven through the Scene control surface."""
 
     def __init__(self, scene: Scene) -> None:
+        super().__init__()
         self._scene = scene
         self.dt = scene.mj_model.opt.timestep
         self.name = "cpu"
@@ -87,6 +92,7 @@ class MuJoCoBackend(Backend):
                                          distance_mm=msg.distance)
         else:
             raise TypeError(f"not a simulation input: {type(msg).__name__}")
+        self.inputs.append(msg)
 
     def reset(self) -> None:
         """Reset the model to its initial (neutral) state."""
@@ -105,6 +111,7 @@ class MJWarpBackend(Backend):
     _NOT_YET = "MJWarp stepping lands in Phase 6"
 
     def __init__(self, scene: Scene) -> None:
+        super().__init__()
         try:
             import mujoco_warp  # noqa: F401  (lazy import, PLAN.md §4)
         except ImportError as exc:

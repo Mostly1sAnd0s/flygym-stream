@@ -164,16 +164,22 @@ flygym-stream/
 │                                       buttons; one MESSAGE map for all senders)
 └── tests/
     ├── conftest.py             ≤ 250  (fixtures: tiny MuJoCo model, FakeRenderer,
-    │                                  FakeBackend, WS test client, tmp Config)
+    │                                  FakeBackend, FakeClock, tmp Config)
     ├── test_line_limits.py     ≤ 60   (meta-test: every project file < 500 lines)
     ├── test_protocol.py        ≤ 150
     ├── test_scene.py           ≤ 150
-    ├── test_simulation.py      ≤ 200  (pacing, pause/step, input drain; FakeBackend)
-    ├── test_rendering.py       ≤ 100  (JPEG shape/size with FakeRenderer; GPU test
-    │                                  marked)
+    ├── test_simulation.py      ≤ 220  (pacing, pause/step, input drain; FakeBackend;
+    │                                  landed at 219 — pacing + step semantics)
+    ├── test_rendering.py       ≤ 150  (JPEG encode pure + GPU-marked real renders,
+    │                                  incl. cross-thread EGL regression test)
     ├── test_stream.py          ≤ 120  (drop-oldest, disconnect behavior)
-    └── test_app.py             ≤ 200  (end-to-end: tiny model + FakeRenderer,
-                                        connect WS, get frame, send control)
+    ├── test_cli.py             ≤ 150  (GL env guard, render-preview DoD, fetch-assets,
+    │                                  serve subprocess smoke: real WS + real JPEG)
+    ├── test_app.py             ≤ 200  (end-to-end with FakeBackend/FakeRenderer:
+    │                                  connect WS, get frame, send control,
+    │                                  single-client 1013, bad input 1008)
+    └── test_app_gpu.py         ≤ 150  (GL-only: full real scene through the app;
+                                        control -> pixels proof over the WS)
 ```
 
 PyPI deps (add to `pyproject.toml`): `flygym>=2.1.0` (or local path

@@ -55,6 +55,52 @@ def render_preview(args: argparse.Namespace) -> None:
     print(f"wrote {len(frames)} frames ({args.duration} sim s) -> {args.out}")
 
 
+def serve(args: argparse.Namespace) -> None:
+    """Run the MJPEG-over-WebSocket streaming service (Phase 5 DoD).
+
+    Builds the default scene, starts the sim thread, and serves until
+    Ctrl-C; the sim thread and renderer are torn down on exit.
+    """
+    import uvicorn
+
+    from flygym_stream.app import Producer, create_app
+    from flygym_stream.config import Config
+    from flygym_stream.rendering import OffscreenRenderer
+    from flygym_stream.scene import build_default_scene
+    from flygym_stream.simulation import SimThread, make_backend
+    from flygym_stream.stream import FrameQueue, InputQueue
+
+    if args.bind == "0.0.0.0" and not args.insecure:
+        sys.exit("refusing to bind 0.0.0.0 without --insecure (PLAN.md §6)")
+
+    config = Config(bind=args.bind, port=args.port, width=args.width,
+                    height=args.height, output_fps=args.fps,
+                    backend=args.backend, playback_speed=args.speed)
+    scene = build_default_scene()
+    backend = make_backend(scene, config)
+    renderer = OffscreenRenderer(scene, config)
+    frames, inputs = FrameQueue(), InputQueue()
+    sim = SimThread(backend, renderer, frames, inputs, config)
+    sim.start()
+    app = create_app(config, Producer(frames, inputs, backend, sim))
+    print(f"flygym-stream serving on http://{config.bind}:{config.port}")
+    try:
+        uvicorn.run(app, host=config.bind, port=config.port, log_level="warning")
+    finally:
+        sim.stop()
+        renderer.close()
+
+
+def fetch_assets(args: argparse.Namespace) -> None:
+    """Force the one-time flygym S3 asset prefetch (Phase 5)."""
+    from flygym.utils.assets_lazy_loading import get_cache_root, prefetch_meshes
+
+    dirs = prefetch_meshes()
+    print(f"assets cached under: {get_cache_root()}")
+    for d in dirs:
+        print(f"  {d}")
+
+
 def main(argv: list[str] | None = None) -> None:
     """Parse argv and dispatch the subcommand (serve lands in Phase 5)."""
     parser = argparse.ArgumentParser(
@@ -70,15 +116,25 @@ def main(argv: list[str] | None = None) -> None:
     rp.add_argument("--fps", type=int, default=30)
     rp.set_defaults(func=render_preview)
 
-    sub.add_parser("serve", help="run the streaming service (Phase 5)",
-                   add_help=False).set_defaults(func=None)
-    sub.add_parser("fetch-assets", help="prefetch flygym assets (Phase 5)",
-                   add_help=False).set_defaults(func=None)
+    sv = sub.add_parser("serve", help="run the streaming service (Phase 5)")
+    sv.add_argument("--bind", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--width", type=int, default=1280)
+    sv.add_argument("--height", type=int, default=720)
+    sv.add_argument("--fps", type=int, default=30)
+    sv.add_argument("--backend", default="cpu", choices=["cpu", "gpu", "auto"])
+    sv.add_argument("--speed", type=float, default=1.0, help="playback speed")
+    sv.add_argument("--insecure", action="store_true",
+                    help="allow binding 0.0.0.0 (PLAN.md §6)")
+    sv.set_defaults(func=serve)
+
+    fa = sub.add_parser("fetch-assets", help="prefetch flygym assets (Phase 5)")
+    fa.set_defaults(func=fetch_assets)
 
     args = parser.parse_args(argv)
     require_gl_env()
     if args.func is None:
-        sys.exit(f"{args.cmd} is not implemented yet (Phase 5)")
+        sys.exit(f"{args.cmd} is not implemented yet")
     args.func(args)
 
 

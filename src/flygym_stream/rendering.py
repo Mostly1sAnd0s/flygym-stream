@@ -57,28 +57,38 @@ class OffscreenRenderer:
             raise ValueError("Scene.camera_name is required for OffscreenRenderer")
         self._scene = scene
         self._config = config
-        self._renderer = flygym_rendering.Renderer(
-            scene.mj_model,
-            scene.camera_name,
-            camera_res=config.camera_res,
-            playback_speed=config.playback_speed,
-            output_fps=config.output_fps,
-            buffer_frames=False,
-            render_rgb=True,
-        )
+        # The flygym Renderer (and its EGL context) is created lazily on the
+        # first render call: EGL contexts bind to the creating thread, so
+        # creating it where rendering happens (the sim thread in serve) is
+        # what keeps eglMakeCurrent from failing cross-thread (EGL_BAD_ACCESS).
+        self._renderer: flygym_rendering.Renderer | None = None
         self._mjv_cam = mj.MjvCamera()
+
+    def _ensure_renderer(self) -> flygym_rendering.Renderer:
+        if self._renderer is None:
+            self._renderer = flygym_rendering.Renderer(
+                self._scene.mj_model,
+                self._scene.camera_name,
+                camera_res=self._config.camera_res,
+                playback_speed=self._config.playback_speed,
+                output_fps=self._config.output_fps,
+                buffer_frames=False,
+                render_rgb=True,
+            )
+        return self._renderer
 
     def render_as_needed(self) -> bool:
         """Sim-time pacing (flygym Renderer); True when a frame is due."""
-        return self._renderer.render_as_needed(self._scene.mj_data)
+        return self._ensure_renderer().render_as_needed(self._scene.mj_data)
 
     def render_frame(self) -> np.ndarray:
         """Render the current orbit-camera view (call after pacing tick)."""
+        renderer = self._ensure_renderer()
         self._scene.update_mjv_camera(self._mjv_cam)
-        self._renderer.mj_renderer.update_scene(
-            self._scene.mj_data, self._mjv_cam, self._renderer.scene_option
+        renderer.mj_renderer.update_scene(
+            self._scene.mj_data, self._mjv_cam, renderer.scene_option
         )
-        return self._renderer.mj_renderer.render()
+        return renderer.mj_renderer.render()
 
     def encode_jpeg(self, frame: np.ndarray) -> bytes:
         """Encode at the configured JPEG quality."""
@@ -86,11 +96,13 @@ class OffscreenRenderer:
 
     def reset(self) -> None:
         """Reset the render timer (the next frame becomes immediately due)."""
-        self._renderer.reset()
+        self._ensure_renderer().reset()
 
     def close(self) -> None:
-        """Release the underlying MuJoCo GL resources."""
-        self._renderer.close()
+        """Release the underlying MuJoCo GL resources (if ever created)."""
+        if self._renderer is not None:
+            self._renderer.close()
+            self._renderer = None
 
     def __enter__(self) -> "OffscreenRenderer":
         return self

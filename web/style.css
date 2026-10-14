@@ -1,0 +1,123 @@
+/* FlyGym Stream — minimal dark theme (PLAN.md Phase 5). */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 14px/1.4 system-ui, sans-serif;
+  background: #14161a;
+  color: #d7dbe0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #2a2e35;
+}
+
+h1 { font-size: 1.1rem; margin: 0; font-weight: 600; }
+
+.hud {
+  font-variant-numeric: tabular-nums;
+  color: #8fd18f;
+  font-size: 0.85rem;
+  white-space: pre;
+}
+
+.hud.warn { color: #e0b34c; }
+.hud.err  { color: #e06c5c; }
+
+main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#video-pane {
+  position: relative;
+  flex: 1;
+  margin: 0.75rem;
+  background: #000;
+  border: 1px solid #2a2e35;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: grab;
+}
+
+#video-pane:active { cursor: grabbing; }
+
+#video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+#controls {
+  width: 320px;
+  padding: 0.75rem 1rem;
+  border-left: 1px solid #2a2e35;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.row label { min-width: 52px; color: #9aa4b0; }
+
+.row input[type="range"] { flex: 1; }
+
+.row input[type="number"] { width: 70px; }
+
+button {
+  background: #23272f;
+  color: #d7dbe0;
+  border: 1px solid #3a4048;
+  border-radius: 4px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+button:hover { background: #2c313b; }
+button:active { background: #343a45; }
+
+.sliders { display: flex; flex-direction: column; gap: 0.35rem; }
+
+.slider {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.slider .idx {
+  min-width: 26px;
+  text-align: right;
+  color: #9aa4b0;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider input[type="range"] { flex: 1; }
+
+.slider .val {
+  min-width: 48px;
+  text-align: right;
+  color: #9fd0ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.hint { color: #6b7480; font-size: 0.75rem; margin-top: auto; }
+
+#orbit-state { color: #9aa4b0; font-size: 0.8rem; }

@@ -34,8 +34,9 @@ See [PLAN.md](PLAN.md) for the full design.
 - MuJoCo sim config: Euler integrator, dt=0.1 ms, nq=133 for the full
   biological skeleton.
 - flygym API notes: `Fly` is deprecated — use `NeuroMechFly`. Camera names
-  are namespaced by the fly name (`nmf/trackingcam`). The orbit camera is
-  the MuJoCo free camera (`mj_data.cam`), no named camera needed.
+  are namespaced by the fly name (`nmf/trackingcam`). The streamed view uses
+  a persistent `mujoco.MjvCamera` (orbit state) passed to
+  `update_scene` — MuJoCo's free camera is not exposed for mutation.
 
 ## Setup
 
@@ -51,14 +52,38 @@ export MUJOCO_GL=egl PYOPENGL_PLATFORM=egl   # REQUIRED at runtime
 # headless rendering smoke test (Phase 0; --flygym adds the full fly scene)
 uv run python scripts/egl_smoke.py --flygym
 
+# warm the one-time S3 mesh cache (offline environments; idempotent)
+uv run python -m flygym_stream.cli fetch-assets
+
 # headless MP4 preview of the fly (Phase 4 DoD; ~3 s wall for 3 s sim @720p)
 uv run python -m flygym_stream.cli render-preview --duration 3 --out /tmp/preview.mp4
 
-# serve (Phase 5)
+# streaming service (Phase 5): scene + sim thread + uvicorn
 uv run python -m flygym_stream.cli serve --bind 127.0.0.1 --port 8765
+# options: --width/--height/--fps (default 1280x720@30), --speed (playback),
+#          --backend cpu|gpu|auto, --insecure (required to bind 0.0.0.0)
 ```
 
-The service binds `127.0.0.1` only. From a client machine tunnel first:
+Then open <http://127.0.0.1:8765> in a browser.
+
+### Web UI
+
+- **Video pane**: drag to orbit (azimuth/elevation), scroll to zoom. Frames
+  are MJPEG over WebSocket at the configured fps.
+- **Controls**: one slider per actuated DOF (42 in the default scene),
+  `neutral` / `pause` / `resume` / `step` / `reset` buttons, and a playback
+  speed slider (0.1-10x).
+- **HUD**: sim time, measured fps, backend, model, paused state.
+- **Protocol** (v1, mirrored from `src/flygym_stream/protocol.py`): the
+  client sends `hello` first; the server replies with `status` (~1 Hz) plus
+  binary JPEG frames; control messages (`orbit`, `actuator(s)`, `neutral`,
+  `pause`, `resume`, `step`, `speed`, `reset`) are forwarded to the sim
+  thread. One client at a time — a second connection is rejected with
+  close code 1013 / `single-client`. Malformed input closes that
+  connection with 1008; the server keeps running.
+
+The service binds `127.0.0.1` only (binding `0.0.0.0` requires the explicit
+`--insecure` flag). From a client machine tunnel first:
 
 ```bash
 ssh -L 8765:127.0.0.1:8765 user@server
@@ -70,6 +95,6 @@ Tailscale works as an alternative to the SSH tunnel.
 ## Tests
 
 ```bash
-pytest                          # default: no gpu / network marks
-pytest -m gpu                   # GL-context / GPU tests
+uv run pytest                          # default: no gpu / network marks
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl uv run pytest -m gpu   # GL tests
 ```
