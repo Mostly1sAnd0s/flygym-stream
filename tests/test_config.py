@@ -20,6 +20,7 @@ def test_defaults_match_plan() -> None:
     assert cfg.port == 8765
     assert cfg.backend == "cpu"
     assert cfg.scene == "fly_flat_ground"
+    assert cfg.overlay == "none"
 
 
 def test_camera_res_is_height_width() -> None:
@@ -45,6 +46,7 @@ def test_config_is_immutable() -> None:
     {"port": 70000},
     {"backend": "tpu"},
     {"scene": "unknown_scene"},
+    {"overlay": "x-ray"},
 ])
 def test_invalid_values_rejected(kwargs: dict) -> None:
     with pytest.raises(ValueError):
@@ -56,3 +58,15 @@ def test_valid_alternatives_accepted() -> None:
         cfg = Config(backend=backend, width=320, height=240, output_fps=10,
                      jpeg_quality=1, playback_speed=0.5, port=1)
         assert cfg.backend == backend
+
+
+def test_overlay_choices() -> None:
+    assert Config(overlay="depth").overlay == "depth"
+    assert Config(overlay="none").overlay == "none"
+
+
+def test_transport_choices() -> None:
+    assert Config().transport == "mjpeg"  # default is the proven path
+    assert Config(transport="webrtc").transport == "webrtc"
+    with pytest.raises(ValueError):
+        Config(transport="rtsp")

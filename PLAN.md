@@ -309,12 +309,26 @@ tab and reconnecting works; full `pytest` green.
 
 ### Phase 6 (optional stretch — only after Phase 5 DoD)
 
-- MJWarp GPU backend enabled by default when CUDA present (`backend=auto`),
-  with `@pytest.mark.gpu` test.
-- Depth/segmentation overlay toggle (flygym `Renderer` already supports
-  `render_depth=True`).
-- WebRTC transport replacing MJPEG (protocol JSON channel unchanged).
-- systemd unit + logrotate snippet in README.
+Delivered 2026-10-14 (see `git log`):
+
+- MJWarp GPU backend: **implemented + parity-tested** (NoSlip-free models
+  match CPU to float32 precision; `make_backend(auto)` falls back to CPU
+  with a logged note). Blocker, documented: no released `mujoco-warp`
+  implements MuJoCo's NoSlip solver, which the default fly scene uses
+  (`noslip_iterations=5`); the backend refuses such models with an
+  actionable error (CPU stays the fast path for the default scene).
+- Depth overlay: `Config.overlay` + `serve --overlay depth` (pure
+  `apply_depth_overlay` compositor + GPU test).
+- WebRTC transport: `Config.transport` + `serve --transport webrtc`
+  + `?webrtc` browser mode; `webrtc.py` (FrameTrack + WebRtcSession,
+  server-as-offerer); JSON control channel unchanged (app-layer
+  `webrtc-start`/`webrtc-offer`/`webrtc-answer` signaling); headless
+  e2e test (real scene -> RTP -> decoded frames). `web` extra: aiortc.
+- systemd unit + logrotate snippet in `deploy/` (documented in README).
+- Not done (deliberate): replacing MJPEG with WebRTC as the *default*
+  transport (MJPEG is simpler/lower-latency for a single LAN client;
+  WebRTC is an opt-in alternative, as the plan's "replacing" phrasing
+  would break the DoD baseline).
 
 ## 6. Server environment (record actual values in README)
 

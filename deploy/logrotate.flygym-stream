@@ -1,0 +1,12 @@
+# /etc/logrotate.d/flygym-stream
+# Only needed if you redirect serve output to a file (the systemd unit
+# above logs to the journal instead: `journalctl -u flygym-stream -f`).
+/var/log/flygym-stream/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

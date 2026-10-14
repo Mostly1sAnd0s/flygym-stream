@@ -12,13 +12,17 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu = [
-    "warp-lang>=1.14,<1.15",
-    "mujoco_warp>=3.9,<3.10",
+    # matches flygym's own 'warp' extra (mujoco-warp 3.9.x needs mujoco>=3.8)
+    "mujoco-warp>=3.9,<3.10",
+    "warp-lang>=1.13,<2.0",
 ]
 dev = [
     "pytest>=9.0,<10.0",
     "pytest-cov>=7.0,<8.0",
     "httpx>=0.27,<1.0",  # FastAPI TestClient (WS + HTTP)
+]
+webrtc = [
+    "aiortc>=1.11,<2",
 ]
 
 [build-system]

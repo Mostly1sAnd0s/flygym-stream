@@ -61,10 +61,29 @@ uv run python -m flygym_stream.cli render-preview --duration 3 --out /tmp/previe
 # streaming service (Phase 5): scene + sim thread + uvicorn
 uv run python -m flygym_stream.cli serve --bind 127.0.0.1 --port 8765
 # options: --width/--height/--fps (default 1280x720@30), --speed (playback),
-#          --backend cpu|gpu|auto, --insecure (required to bind 0.0.0.0)
+#          --backend cpu|gpu|auto, --overlay none|depth, --transport
+#          mjpeg|webrtc (Phase 6 stretch), --insecure (0.0.0.0 only)
 ```
 
-Then open <http://127.0.0.1:8765> in a browser.
+Then open <http://127.0.0.1:8765> in a browser
+(`http://127.0.0.1:8765/?webrtc` for the WebRTC transport).
+
+### Phase 6 stretch status
+
+- **Depth overlay**: `serve --overlay depth` blends a blue-cyan depth tint
+  over the streamed frames (second GL pass, composited server-side).
+- **WebRTC transport**: `serve --transport webrtc` (needs the `webrtc`
+  extra: `uv sync --extra webrtc`) + open the URL with `?webrtc`.
+  Video goes over WebRTC (H.264/VP8, server is the offerer); the JSON
+  control channel on the WebSocket is byte-identical to MJPEG mode.
+- **MJWarp GPU backend** (`--backend gpu`/`auto`, needs the `gpu` extra:
+  `uv sync --extra gpu`): implemented and parity-tested against CPU MuJoCo
+  (matching to float32 precision on NoSlip-free models). **Caveat:** the
+  default fly scene is compiled with MuJoCo's NoSlip solver, which no
+  released `mujoco-warp` implements — for that scene the GPU backend
+  raises an actionable error and `auto` falls back to CPU (which here is
+  the faster path anyway: ~1.5-2x real-time headroom). NoSlip-free models
+  step on the GPU and render through the same frame pipeline.
 
 ### Web UI
 
@@ -91,6 +110,20 @@ ssh -L 8765:127.0.0.1:8765 user@server
 ```
 
 Tailscale works as an alternative to the SSH tunnel.
+
+### systemd (optional)
+
+`deploy/flygym-stream.service` runs the service under systemd (logs go to
+the journal: `journalctl -u flygym-stream -f`):
+
+```bash
+sudo cp deploy/flygym-stream.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now flygym-stream
+```
+
+`deploy/logrotate.flygym-stream` is a logrotate snippet only if you
+redirect output to files instead of the journal.
 
 ## Tests
 

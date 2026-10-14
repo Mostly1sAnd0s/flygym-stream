@@ -42,6 +42,37 @@ def encode_jpeg(frame: np.ndarray, quality: int) -> bytes:
     return buf.getvalue()
 
 
+def apply_depth_overlay(
+    rgb: np.ndarray,
+    depth: np.ndarray,
+    z_max: float = 5.0,
+    alpha: float = 0.55,
+) -> np.ndarray:
+    """Blend a blue-cyan depth tint over an RGB frame (Phase 6 stretch).
+
+    Args:
+        rgb: ``(H, W, 3)`` uint8 RGB frame.
+        depth: ``(H, W)`` float32 depth in meters (0 = background).
+        z_max: Depth mapped to the "closest" cyan end of the gradient.
+        alpha: Overlay blend strength in (0, 1).
+
+    Returns:
+        ``rgb`` with the tint blended in; background (depth == 0) untouched.
+    """
+    if depth.shape[:2] != rgb.shape[:2]:
+        raise ValueError(f"depth {depth.shape} != rgb {rgb.shape}")
+    if depth.dtype != np.float32:
+        raise ValueError(f"depth must be float32, got {depth.dtype}")
+    if not 0.0 < alpha < 1.0:
+        raise ValueError(f"alpha must be in (0, 1), got {alpha}")
+    rgb_f = rgb.astype(np.float32)
+    mask = depth > 0
+    t = np.clip(depth[mask] / z_max, 0.0, 1.0)
+    tint = np.stack([np.zeros_like(t), 255.0 * t, 140.0 + 115.0 * t], axis=-1)
+    rgb_f[mask] = (1.0 - alpha) * rgb_f[mask] + alpha * tint
+    return np.clip(rgb_f, 0, 255).astype(np.uint8)
+
+
 class OffscreenRenderer:
     """Fly scene -> RGB frame -> JPEG bytes, paced by sim time.
 
@@ -82,13 +113,23 @@ class OffscreenRenderer:
         return self._ensure_renderer().render_as_needed(self._scene.mj_data)
 
     def render_frame(self) -> np.ndarray:
-        """Render the current orbit-camera view (call after pacing tick)."""
+        """Render the current orbit-camera view (call after pacing tick).
+
+        With ``config.overlay == "depth"`` a second depth pass is rendered
+        and blended over the RGB frame via ``apply_depth_overlay``.
+        """
         renderer = self._ensure_renderer()
         self._scene.update_mjv_camera(self._mjv_cam)
         renderer.mj_renderer.update_scene(
             self._scene.mj_data, self._mjv_cam, renderer.scene_option
         )
-        return renderer.mj_renderer.render()
+        frame = renderer.mj_renderer.render()
+        if self._config.overlay == "depth":
+            renderer.mj_renderer.enable_depth_rendering()
+            depth = renderer.mj_renderer.render()
+            renderer.mj_renderer.disable_depth_rendering()
+            frame = apply_depth_overlay(frame, depth)
+        return frame
 
     def encode_jpeg(self, frame: np.ndarray) -> bytes:
         """Encode at the configured JPEG quality."""

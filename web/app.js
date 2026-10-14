@@ -9,6 +9,11 @@
 
 const PROTO = 1;
 
+/* WebRTC transport mode (PLAN.md Phase 6): enable via http://host/?webrtc.
+ * The server is the WebRTC offerer; frames arrive on <video> instead of
+ * the MJPEG <img>. The JSON control channel is identical either way. */
+const WEBCRTC = new URLSearchParams(location.search).has("webrtc");
+
 /* --- single source of truth for outgoing messages (protocol.py) --------- */
 const MSG = {
   hello: (proto) => JSON.stringify({ type: "hello", proto }),
@@ -23,11 +28,15 @@ const MSG = {
   step: (n) => JSON.stringify({ type: "step", n }),
   speed: (value) => JSON.stringify({ type: "speed", value }),
   reset: () => JSON.stringify({ type: "reset" }),
+  /* app-layer WebRTC signaling (not part of protocol.py) */
+  webrtc_start: () => JSON.stringify({ type: "webrtc-start" }),
+  webrtc_answer: (sdp) => JSON.stringify({ type: "webrtc-answer", sdp }),
 };
 
 /* --- state --------------------------------------------------------------- */
 const state = {
   ws: null,
+  rtc: null,
   orbit: { azimuth: 30, elevation: -20, distance: 40 }, // deg/deg/mm
   paused: false,
   nActuators: null,
@@ -39,9 +48,15 @@ const state = {
 /* --- DOM ------------------------------------------------------------------ */
 const $ = (id) => document.getElementById(id);
 const video = $("video");
+const videoWebrtc = $("video-webrtc");
 const hud = $("hud");
 const orbitState = $("orbit-state");
 const slidersEl = $("sliders");
+
+if (WEBCRTC) {  // WebRTC transport: swap <img> for <video>
+  video.style.display = "none";
+  videoWebrtc.style.display = "block";
+}
 
 /* --- websocket ------------------------------------------------------------ */
 function wsUrl() {
@@ -57,17 +72,22 @@ function connect() {
   ws.onopen = () => {
     state.reconnectDelay = 1000;
     ws.send(MSG.hello(PROTO));
+    if (WEBCRTC) webrtcBegin();
   };
 
   ws.onmessage = (ev) => {
     if (typeof ev.data === "string") {
       onText(JSON.parse(ev.data));
-    } else {
+    } else if (!WEBCRTC) {
       onFrame(ev.data);
     }
   };
 
   ws.onclose = () => {
+    if (state.rtc) {
+      state.rtc.close();
+      state.rtc = null;
+    }
     setHud("disconnected \u2014 reconnecting\u2026", "err");
     const delay = state.reconnectDelay;
     state.reconnectDelay = Math.min(delay * 2, 15000);
@@ -77,11 +97,34 @@ function connect() {
   ws.onerror = () => ws.close();
 }
 
+/* --- WebRTC transport (server is the offerer) ------------------------------ */
+function webrtcBegin() {
+  state.rtc = new RTCPeerConnection();
+  state.rtc.addTransceiver("video", { direction: "recvonly" });
+  state.rtc.ontrack = (ev) => {
+    videoWebrtc.srcObject = ev.streams[0];
+  };
+  send(MSG.webrtc_start());
+}
+
+async function onWebrtcOffer(sdp) {
+  try {
+    await state.rtc.setRemoteDescription({ type: "offer", sdp });
+    const answer = await state.rtc.createAnswer();
+    await state.rtc.setLocalDescription(answer);
+    send(MSG.webrtc_answer(state.rtc.localDescription.sdp));
+  } catch (err) {
+    setHud(`webrtc failed: ${err}`, "err");
+  }
+}
+
 function onText(msg) {
   if (msg.type === "status") {
     onStatus(msg);
   } else if (msg.type === "error") {
     setHud(`error: ${msg.message}`, "err");
+  } else if (msg.type === "webrtc-offer") {
+    onWebrtcOffer(msg.sdp);
   }
   // unknown types: ignore (server keeps going)
 }
@@ -144,14 +187,15 @@ function ensureSliders(n) {
 /* --- orbit camera ---------------------------------------------------------- */
 let dragging = false;
 let dragLast = null;
+const videoPane = $("video-pane");  // drag/zoom work over either <img> or <video>
 
-video.addEventListener("pointerdown", (ev) => {
+videoPane.addEventListener("pointerdown", (ev) => {
   dragging = true;
   dragLast = [ev.clientX, ev.clientY];
-  video.setPointerCapture(ev.pointerId);
+  videoPane.setPointerCapture(ev.pointerId);
 });
 
-video.addEventListener("pointermove", (ev) => {
+videoPane.addEventListener("pointermove", (ev) => {
   if (!dragging) return;
   const dx = ev.clientX - dragLast[0];
   const dy = ev.clientY - dragLast[1];
@@ -161,12 +205,12 @@ video.addEventListener("pointermove", (ev) => {
   sendOrbitThrottled();
 });
 
-video.addEventListener("pointerup", (ev) => {
+videoPane.addEventListener("pointerup", (ev) => {
   dragging = false;
-  video.releasePointerCapture(ev.pointerId);
+  videoPane.releasePointerCapture(ev.pointerId);
 });
 
-video.addEventListener("wheel", (ev) => {
+videoPane.addEventListener("wheel", (ev) => {
   ev.preventDefault();
   state.orbit.distance = clamp(
     state.orbit.distance * (1 + ev.deltaY * 0.001), 5, 500

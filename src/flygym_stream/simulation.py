@@ -13,6 +13,8 @@ import threading
 import time
 from abc import ABC, abstractmethod
 
+import mujoco as mj
+
 from flygym_stream.config import Config
 from flygym_stream.protocol import (
     Actuator, ActuatorSet, InputMessage, Neutral, Orbit, Pause, Reset,
@@ -107,33 +109,114 @@ class MJWarpBackend(Backend):
     error (unit-tested). Real mjw stepping lands in Phase 6.
     """
 
-    dt, name, n_actuators = 0.0, "gpu", 0
-    _NOT_YET = "MJWarp stepping lands in Phase 6"
+class MJWarpBackend(Backend):
+    """GPU stepping via MJWarp (optional 'gpu' extra + NVIDIA CUDA).
+
+    The GPU stack is imported lazily so the service runs CPU-only by
+    default. After every step the GPU state is written back to the CPU
+    MjData the (CPU-side) renderer reads. Models compiled with MuJoCo's
+    NoSlip solver are refused: no released mujoco-warp implements that
+    solver, and the default fly scene uses it — use ``--backend cpu``
+    there (PLAN.md Phase 6).
+    """
 
     def __init__(self, scene: Scene) -> None:
         super().__init__()
+        if scene.mj_model.opt.noslip_iterations > 0:
+            raise RuntimeError(
+                "model uses MuJoCo's NoSlip solver, which mujoco-warp does "
+                "not implement; the default fly scene needs --backend cpu "
+                "(PLAN.md Phase 6)"
+            )
         try:
-            import mujoco_warp  # noqa: F401  (lazy import, PLAN.md §4)
+            import mujoco_warp as mjw
+            import warp as wp
         except ImportError as exc:
             raise RuntimeError(
-                "backend 'gpu' needs the 'gpu' extra (warp-lang + mujoco_warp) "
-                "with NVIDIA CUDA; install it (`uv sync --extra gpu`) or use "
-                "--backend cpu"
+                "backend 'gpu' needs the 'gpu' extra (mujoco-warp + "
+                "warp-lang) with NVIDIA CUDA; install it "
+                "(`uv sync --extra gpu`) or use --backend cpu"
             ) from exc
-        raise RuntimeError(f"{self._NOT_YET}; use --backend cpu")
+        self._mjw = mjw
+        self._wp = wp
+        self._scene = scene
+        m = scene.mj_model
+        # mjwarp pre-allocates contact/constraint buffers on the GPU; its
+        # built-in heuristic underestimates for the fly model (94 resting
+        # contacts), so size them from a short CPU warm-up instead.
+        self._m = mjw.put_model(m)
+        nconmax = _nconmax(m, scene.mj_data)
+        self._d = mjw.put_data(m, scene.mj_data, nconmax=nconmax, njmax=2 * nconmax)
+        self.dt = m.opt.timestep
+        self.name = "gpu"
+        self.n_actuators = scene.n_actuators
 
     @property
     def time(self) -> float:
-        raise NotImplementedError(self._NOT_YET)
+        """Current simulation time in seconds (GPU -> host)."""
+        return float(self._d.time.numpy()[0])
 
     def step(self, dt: float) -> None:
-        raise NotImplementedError(self._NOT_YET)
+        """Advance one model timestep on the GPU, then mirror to CPU."""
+        if abs(dt - self.dt) > 1e-12:
+            raise ValueError(f"dt {dt} != model timestep {self.dt}")
+        self._mjw.step(self._m, self._d)
+        self._sync_cpu()
+
+    def _sync_cpu(self) -> None:
+        """Copy GPU qpos/qvel/time into the CPU MjData and forward-kinematics it."""
+        d = self._scene.mj_data
+        d.qpos[:] = self._d.qpos.numpy()[0]
+        d.qvel[:] = self._d.qvel.numpy()[0]
+        d.time = self.time
+        mj.mj_forward(self._scene.mj_model, d)
 
     def apply_input(self, msg: InputMessage) -> None:
-        raise NotImplementedError(self._NOT_YET)
+        """Route a control message; actuator values go to the GPU ctrl."""
+        if isinstance(msg, Orbit):
+            self._scene.set_orbit_camera(azimuth=msg.azimuth,
+                                         elevation=msg.elevation,
+                                         distance_mm=msg.distance)
+        elif isinstance(msg, Actuator):
+            self._scene.set_actuator(msg.index, msg.value)
+            self._push_ctrl()
+        elif isinstance(msg, ActuatorSet):
+            self._scene.set_actuators(msg.values)
+            self._push_ctrl()
+        elif isinstance(msg, Neutral):
+            self._scene.set_actuators(self._scene.neutral_actuators())
+            self._push_ctrl()
+        else:
+            raise TypeError(f"not a simulation input: {type(msg).__name__}")
+        self.inputs.append(msg)
+
+    def _push_ctrl(self) -> None:
+        """Push the CPU ctrl (just validated/updated by Scene) to the GPU."""
+        ctrl = self._scene.mj_data.ctrl[self._scene.actuator_ids]
+        self._d.ctrl = self._wp.array([list(ctrl)], dtype=self._wp.float32,
+                                      device="cuda")
 
     def reset(self) -> None:
-        raise NotImplementedError(self._NOT_YET)
+        """Reset GPU + CPU to the same (keyframe or initial) state."""
+        self._mjw.reset_data(self._m, self._d)
+        self._scene.reset()  # CPU side: keyframe/neutral + forward
+        d = self._scene.mj_data
+        wp = self._wp
+        self._d.qpos = wp.array([list(d.qpos)], dtype=wp.float32, device="cuda")
+        self._d.qvel = wp.array([list(d.qvel)], dtype=wp.float32, device="cuda")
+        self._d.time = wp.array([0.0], dtype=wp.float32, device="cuda")
+        self._push_ctrl()
+
+
+def _nconmax(m: mj.MjModel, d: mj.MjData) -> int:
+    """GPU contact capacity: 2x the peak seen in a CPU warm-up (floor 64)."""
+    scratch = mj.MjData(m)
+    mj.mj_copyData(scratch, m, d)
+    peak = 0
+    for _ in range(200):
+        mj.mj_step(m, scratch)
+        peak = max(peak, scratch.ncon)
+    return max(64, 2 * peak)
 
 
 def make_backend(scene: Scene, config: Config) -> Backend:

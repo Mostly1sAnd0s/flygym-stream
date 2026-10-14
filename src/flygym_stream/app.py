@@ -28,6 +28,7 @@ from flygym_stream.protocol import (
 )
 from flygym_stream.simulation import Backend, SimThread
 from flygym_stream.stream import FrameQueue, InputQueue
+from flygym_stream.webrtc import WebRtcSession
 
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 log = logging.getLogger(__name__)
@@ -123,6 +124,43 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
             if decoded is not None:
                 producer.inputs.put(decoded)
 
+    async def _webrtc_handshake(ws: WebSocket) -> "WebRtcSession | None":
+        """App-layer signaling: webrtc-start in; offer/answer out (server
+        is the offerer, see webrtc.py). The JSON control protocol
+        (protocol.py) is untouched; only the video transport changes.
+        """
+        try:
+            msg = json.loads(await ws.receive_text())
+            ok = isinstance(msg, dict) and msg.get("type") == "webrtc-start"
+        except Exception:
+            ok = False
+        if not ok:
+            await ws.close(1008, "webrtc-start expected as first message")
+            return None
+        try:
+            session = WebRtcSession(config, producer.frames)
+            offer_sdp = await session.create_offer()
+            await ws.send_text(
+                json.dumps({"type": "webrtc-offer", "sdp": offer_sdp}))
+            msg = json.loads(await ws.receive_text())
+            ok = (isinstance(msg, dict)
+                  and msg.get("type") == "webrtc-answer"
+                  and isinstance(msg.get("sdp"), str))
+        except Exception:
+            log.exception("webrtc handshake failed")
+            await ws.close(1011, "webrtc unavailable")
+            return None
+        if not ok:
+            await ws.close(1008, "webrtc-answer expected")
+            return None
+        try:
+            await session.handle_answer(msg["sdp"])
+        except Exception:
+            log.exception("webrtc answer rejected")
+            await ws.close(1011, "webrtc unavailable")
+            return None
+        return session
+
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
         await websocket.accept()
@@ -133,6 +171,7 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
             await websocket.close(code=1013, reason="single-client")
             return
         active.append(websocket)
+        session: WebRtcSession | None = None
         try:
             raw = await websocket.receive_text()
             try:
@@ -145,14 +184,23 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
                 await websocket.close(1008, "hello expected as first message")
                 return
             await websocket.send_text(_status(fps_box[0]))
-            sender = asyncio.create_task(_send_loop(websocket))
+            sender: asyncio.Task | None = None
+            if config.transport == "webrtc":
+                session = await _webrtc_handshake(websocket)
+                if session is None:
+                    return  # closed in the handshake
+            else:
+                sender = asyncio.create_task(_send_loop(websocket))
             statuser = asyncio.create_task(_status_loop(websocket))
             try:
                 await _recv_loop(websocket)
             finally:
-                sender.cancel()
+                if sender is not None:
+                    sender.cancel()
                 statuser.cancel()
         finally:
+            if session is not None:
+                await session.close()
             active.clear()
 
     # Registered last: / and /healthz above take precedence, everything else

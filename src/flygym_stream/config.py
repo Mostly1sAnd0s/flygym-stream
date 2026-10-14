@@ -16,6 +16,11 @@ SCENES = ("fly_flat_ground",)
 #: Bind addresses accepted by the server. ``0.0.0.0`` requires the
 #: explicit ``--insecure`` CLI flag (PLAN.md §6).
 BINDS = ("127.0.0.1", "0.0.0.0")
+#: Depth-overlay modes (PLAN.md Phase 6 stretch).
+OVERLAYS = ("none", "depth")
+#: Frame-stream transports (PLAN.md Phase 6): MJPEG binary WS frames or
+#: WebRTC (aiortc 'webrtc' extra). The JSON control channel is unchanged.
+TRANSPORTS = ("mjpeg", "webrtc")
 
 
 @dataclass(frozen=True)
@@ -34,6 +39,10 @@ class Config:
         backend: Simulation backend: "cpu" (MuJoCo), "gpu" (MJWarp),
             or "auto" (pick the fastest available).
         scene: Scene identifier built by ``scene.build_default_scene``.
+        overlay: "none" or "depth" (blue-cyan depth tint over the frame;
+            PLAN.md Phase 6 stretch).
+        transport: "mjpeg" (binary JPEG frames on the WS) or "webrtc"
+            (PLAN.md Phase 6 stretch; needs the 'webrtc' extra).
     """
 
     width: int = 1280
@@ -45,6 +54,8 @@ class Config:
     port: int = 8765
     backend: str = "cpu"
     scene: str = "fly_flat_ground"
+    overlay: str = "none"
+    transport: str = "mjpeg"
 
     def __post_init__(self) -> None:
         _validate(self)
@@ -86,3 +97,8 @@ def _validate(cfg: Config) -> None:
         raise ValueError(f"backend must be one of {BACKENDS}, got {cfg.backend!r}")
     if cfg.scene not in SCENES:
         raise ValueError(f"scene must be one of {SCENES}, got {cfg.scene!r}")
+    if cfg.overlay not in OVERLAYS:
+        raise ValueError(f"overlay must be one of {OVERLAYS}, got {cfg.overlay!r}")
+    if cfg.transport not in TRANSPORTS:
+        raise ValueError(
+            f"transport must be one of {TRANSPORTS}, got {cfg.transport!r}")

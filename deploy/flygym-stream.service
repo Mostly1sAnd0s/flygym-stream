@@ -1,0 +1,23 @@
+[Unit]
+Description=FlyGym remote streaming service (NeuroMechFly + headless EGL)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=adam
+WorkingDirectory=/home/adam/neurofly/flygym-stream
+Environment=MUJOCO_GL=egl
+Environment=PYOPENGL_PLATFORM=egl
+ExecStart=/home/adam/neurofly/flygym-stream/.venv/bin/python -m flygym_stream.cli serve --bind 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=2
+# --- hardening (safe for this workload) ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+# the flygym asset cache lives in $HOME/.cache/flygym_assets:
+ReadWritePaths=/home/adam/.cache/flygym_assets
+
+[Install]
+WantedBy=default.target

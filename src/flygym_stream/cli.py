@@ -75,7 +75,8 @@ def serve(args: argparse.Namespace) -> None:
 
     config = Config(bind=args.bind, port=args.port, width=args.width,
                     height=args.height, output_fps=args.fps,
-                    backend=args.backend, playback_speed=args.speed)
+                    backend=args.backend, playback_speed=args.speed,
+                    overlay=args.overlay, transport=args.transport)
     scene = build_default_scene()
     backend = make_backend(scene, config)
     renderer = OffscreenRenderer(scene, config)
@@ -124,6 +125,12 @@ def main(argv: list[str] | None = None) -> None:
     sv.add_argument("--fps", type=int, default=30)
     sv.add_argument("--backend", default="cpu", choices=["cpu", "gpu", "auto"])
     sv.add_argument("--speed", type=float, default=1.0, help="playback speed")
+    sv.add_argument("--overlay", default="none", choices=["none", "depth"],
+                    help="depth overlay on the streamed frames (Phase 6)")
+    sv.add_argument("--transport", default="mjpeg",
+                    choices=["mjpeg", "webrtc"],
+                    help="frame transport; webrtc needs the 'webrtc' extra "
+                         "and ?webrtc in the browser URL (Phase 6)")
     sv.add_argument("--insecure", action="store_true",
                     help="allow binding 0.0.0.0 (PLAN.md §6)")
     sv.set_defaults(func=serve)
