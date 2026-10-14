@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import os
+
 import mujoco as mj
 import numpy as np
 import pytest
@@ -57,20 +59,22 @@ class FakeRenderer:
     """Duck-typed stand-in for ``rendering.OffscreenRenderer``.
 
     Paces ``render_as_needed`` on sim time exactly like the real one
-    (render when sim time advanced >= 1/output_fps seconds). Frames are
+    (render when sim time advanced >= 1/output_fps seconds); the sim data
+    container it paces on is injected at construction. Frames are
     synthetic: filled with a per-frame counter so every frame is unique.
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, data: object) -> None:
         self.config = config
+        self._data = data
         self._interval = 1.0 / config.output_fps
         self._last_render_time = -np.inf
         self._counter = 0
         self.closed = False
 
-    def render_as_needed(self, data: object) -> bool:
+    def render_as_needed(self) -> bool:
         """Return True (and update the timer) when a frame is due."""
-        t = float(getattr(data, "time"))
+        t = float(getattr(self._data, "time"))
         if t < self._last_render_time + self._interval - 1e-9:
             return False
         self._last_render_time = t
@@ -99,8 +103,8 @@ class FakeRenderer:
 
 
 @pytest.fixture
-def fake_renderer(tmp_config: Config) -> FakeRenderer:
-    return FakeRenderer(tmp_config)
+def fake_renderer(tmp_config: Config, fake_backend: FakeBackend) -> FakeRenderer:
+    return FakeRenderer(tmp_config, fake_backend.data)
 
 
 class FakeBackend:
@@ -157,3 +161,37 @@ class FakeBackend:
 @pytest.fixture
 def fake_backend() -> FakeBackend:
     return FakeBackend()
+
+
+class FakeClock:
+    """Deterministic monotonic clock: ``sleep`` advances the time.
+
+    Injected into SimThread so pacing tests are exact and race-free.
+    """
+
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def __call__(self) -> float:
+        return self.t
+
+    def sleep(self, seconds: float) -> None:
+        self.t += seconds
+
+
+@pytest.fixture
+def fake_clock() -> FakeClock:
+    return FakeClock()
+
+
+@pytest.fixture(autouse=True)
+def _gl_env_for_gpu_tests(request: pytest.FixtureRequest) -> None:
+    """Gpu tests need the headless GL env exported *before* pytest starts:
+
+    mujoco reads MUJOCO_GL at import time, so setting it inside the process
+    is too late. Run: MUJOCO_GL=egl PYOPENGL_PLATFORM=egl pytest -m gpu
+    """
+    if any(m.name == "gpu" for m in request.node.iter_markers()):
+        if os.environ.get("MUJOCO_GL") != "egl" or \
+                os.environ.get("PYOPENGL_PLATFORM") != "egl":
+            pytest.skip("export MUJOCO_GL=egl PYOPENGL_PLATFORM=egl before pytest")

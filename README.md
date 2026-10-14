@@ -18,6 +18,10 @@ See [PLAN.md](PLAN.md) for the full design.
   Full-size meshes fetch once from S3 (40 files, 14 MB) and cache under
   `~/.cache/flygym_assets/neuromechfly_fullsize_meshes_20260623a/`
   (override dir: `FLYGYM_ASSET_CACHE_DIR` / `XDG_CACHE_HOME`).
+- Sim-loop headroom (Phase 4): 30,000 steps + 90 double-pass 720p renders
+  in ~2.2 s wall -> ~1.4x real-time, comfortable for 30 fps streaming.
+  `MUJOCO_GL`/`PYOPENGL_PLATFORM` must be exported *before* the process
+  starts (mujoco reads them at import time).
 
 ### Phase 0 results (`scripts/egl_smoke.py`)
 
@@ -46,6 +50,9 @@ export MUJOCO_GL=egl PYOPENGL_PLATFORM=egl   # REQUIRED at runtime
 ```bash
 # headless rendering smoke test (Phase 0; --flygym adds the full fly scene)
 uv run python scripts/egl_smoke.py --flygym
+
+# headless MP4 preview of the fly (Phase 4 DoD; ~3 s wall for 3 s sim @720p)
+uv run python -m flygym_stream.cli render-preview --duration 3 --out /tmp/preview.mp4
 
 # serve (Phase 5)
 uv run python -m flygym_stream.cli serve --bind 127.0.0.1 --port 8765
