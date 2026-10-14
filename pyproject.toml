@@ -33,7 +33,7 @@ flygym = { path = "../flygym", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m 'not gpu and not network'"
 markers = [
     "gpu: requires a working GL context / NVIDIA GPU (skip with -m 'not gpu')",
     "network: talks to the live S3 asset bucket (skip with -m 'not network')",
