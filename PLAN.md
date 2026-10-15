@@ -38,6 +38,24 @@ the client needs only a web browser.
   `mjw.step`); `flygym.warp.rendering` subclasses `Renderer` for MJWarp data.
 - Keyframes: `mj.mj_resetDataKeyframe(mj_model, mj_data,
   mj.mj_name2id(mj_model, mj.mjtKey, "neutral"))`.
+- Research-sandbox surface (verified 2026-10-15, for Phase 7):
+  `flygym.Simulation` (CPU single-world wrapper: `step`/`reset`/
+  `set_actuator_inputs`/`set_tendon_actuator_inputs`/`warmup` + getters for
+  joint angles/velocities, body pos/rot, site positions, actuator forces,
+  body-segment contact forces, ground-contact info, raw vision,
+  ommatidia readouts); worlds `FlatGroundWorld(half_size)`,
+  `BlocksTerrainWorld`, `GappedTerrainWorld`, `MixedTerrainWorld`,
+  `TetheredWorld` (root pinned as a mocap body — appendages stay free),
+  `MusculoskeletalWorld`; `NeuroMechFly` options `add_vision()`,
+  `add_leg_adhesion(gain)`, `add_tracking_camera(mode, pos_offset, fovy)`,
+  `add_actuators(..., actuator_type, forcelimited, forcerange)`,
+  `SCALE=1000`; `MusculoskeletalFly(muscle_names)` +
+  `build_musculoskeletal_simulation(add_vision=...)`; `ContactParams`
+  (10 friction/solver knobs); `ActuatorType` = {MOTOR, POSITION, VELOCITY,
+  INTVELOCITY, DAMPER, CYLINDER, MUSCLE, ADHESION, TENDON};
+  `ActuatedDOFPreset` = {ALL (133 DOF), LEGS_ONLY, LEGS_ACTIVE_ONLY (42)}.
+  **Units: model length is mm** — `opt.gravity = -9810 mm/s²` (1 g),
+  `SCALE = 1000` (biological mm → model units; full-size NMf ≈ 3 m).
 
 ## 2. Working agreements (MUST follow)
 
@@ -329,6 +347,143 @@ Delivered 2026-10-14 (see `git log`):
   transport (MJPEG is simpler/lower-latency for a single LAN client;
   WebRTC is an opt-in alternative, as the plan's "replacing" phrasing
   would break the DoD baseline).
+
+### Phase 7 — Research sandbox: full NeuroMechFly access (planned)
+
+Goal: turn the service into a research sandbox — every NeuroMechFly/
+flygym capability reachable from the browser over the JSON protocol:
+all 133 DOFs, all worlds, joint-actuator and muscle/tendon models,
+vision, leg adhesion, contact telemetry, physics tuning, built-in
+locomotion, and full state read/write. v1 core invariants hold:
+single client, one stepping interface, `protocol.py` the wire source of
+truth, every file < 500 lines, strict TDD.
+
+Model facts (default scene, verified): 133 q / 132 v DOFs; 42 actuators
+(LEGS_ACTIVE_ONLY) — 6 wing DOFs, head/eye DOFs and the free root joint
+are unactuated; 6 built-in leg contact sensors
+(`ground_contact_{l,r}{f,m,h}_leg` in `sensordata`); 49 joint sites;
+1 keyframe (`neutral`); 1 camera (tracking); NoSlip solver (Phase 6).
+
+**7.1 Scene v2 — `scenes.py` (new)**: frozen `SceneConfig` dataclass:
+`mesh_type` (FULLSIZE|SIMPLIFIED_MAX2000FACES), `joint_preset`, `axis_order`,
+`actuated_preset` (42 vs 133 actuators), `actuator_type`,
+`force_range`, `contact_bodies`, `world` (flat|blocks|gapped|mixed|
+tethered) + `world_kwargs`, `vision`, `adhesion`, `tracking_camera`,
+`spawn`/`spawn_rotation`, `musculoskeletal`. `build_scene(config)` is
+the single builder; `build_default_scene() = build_scene(SceneConfig())`
+so the DRY guard test (model built only in the scene layer) survives.
+CLI flags: `--dof all|legs|legs-active`, `--mesh`, `--world`,
+`--actuator`, `--spawn x,y,z`, `--tethered`, `--vision`, `--adhesion`,
+`--musculoskeletal`. Decision: **no runtime scene rebuild in v1** —
+variants are process-startup choices (warm-cache rebuild ≈ 30 s).
+
+**7.2 Protocol v2** (protocol version stays 1; additive; unknown types
+already tolerated both ways):
+- Control (client → server):
+  - `set_state {qpos?[], qvel?[], ctrl?[]}` — partial state write +
+    `mj_forward` (teleport / throw the fly).
+  - `spawn {pos[3], quat[4]}` — set the free root (qpos[0:7]); rejected
+    (1008) in tethered worlds.
+  - `force {body: name|int, force[3], torque?[3], duration? s}` —
+    `qfrc_applied` injection: perturbation pulses, tether/wind forces.
+  - `param {name, value|values}` — whitelist only: `gravity` (3),
+    `timestep`, `ContactParams` fields (10); unknown name → 1008.
+  - `keyframe {name}`, `adhesion {leg, state 0|1}` (adhesion builds).
+  - `mode {value: neutral|walk|flap|manual}` + `loco {freq?, amplitude?,
+    phase?}` — locomotion pattern + live parameter sweeps.
+  - `log {on: 0|1}` — start/stop server-side JSONL logging.
+- Telemetry (server → client):
+  - `telemetry` @ `--telemetry-hz` (default 10, 0 = off):
+    `{t, qpos[133], qvel[132], ctrl[u], root: {pos, quat},
+    contact: {per-leg Fz from the 6 sensors}, paused, mode}` ≈ 10 KB/s
+    JSON at 10 Hz — fine for LAN; fixed field set in v1.
+  - `model-info` (sent after hello; re-sent on `info` request): units
+    ("mm"), scene config, joints table (id, name, type, qadr, actuator
+    {id, type, range} | null), sites, cameras, keyframes, sensors,
+    muscle names (MSK builds) — enables arbitrary external clients.
+  - `status` gains `mode` and `n_dof`.
+- Telemetry reads **MjData directly** (single source of truth; the 6
+  contact sensors are in `sensordata`). `flygym.Simulation` is used
+  only for the vision stretch (7.6), where its `get_raw_vision` helper
+  is needed.
+
+**7.3 `locomotion.py` (new) — pattern engine**: pure functions of sim
+time (deterministic, frame-rate independent, applied on the sim thread
+before each substep while a pattern mode is active; `manual`/`neutral`
+restore slider authority). `walk`: six-leg gait, tripod phasing
+(lf/rm/rh vs rf/lm/lh), per-leg sinusoids on the proximal DOFs
+(hip yaw/roll, femur/tibia flexion) with live-tunable {freq, amplitude,
+phase}. `flap` (requires `--dof all` for wing actuators): antiphase
+sinusoid on the wing-pitch DOFs, 1–10 Hz.
+
+**7.4 `telemetry.py` (new)**: rate-limited gather from MjData on the sim
+thread → latest-wins `TelemetryQueue` (same semantics as FrameQueue);
+app send loop multiplexes binary frames + text telemetry/status.
+`log`: JSONL of telemetry + control events to `logs/`; `GET /log`
+returns the latest file (fetch-and-analyze workflow).
+
+**7.5 UI (web/)**: DOF table (replaces the 42-slider list when
+`n_actuators > 42`): virtualized rows (name + slider + value + live
+qpos readout), coalesced `actuators` sends per animation frame. Mode
+row: neutral | walk | flap | manual + freq/amplitude sliders.
+Perturbation panel: spawn x/y/z + quat, gravity-z slider, force-pulse
+button, timestep. Telemetry strip: root z, |v_root|, six per-leg
+contact LEDs, sim time, fps. Vision pane (when `--vision`): second
+`<img>` fed by fly-eye frames. The default-scene UI is unchanged.
+
+**7.6 Stretch (each flag-gated, each its own milestone + DoD)**:
+`--world blocks|gapped|mixed` (locomotion over terrain), `--tethered`
+(flight without locomotion: flap with pinned body), `--musculoskeletal`
+(muscle/tendon model: `tendon {id, value}` message; muscle list in
+model-info), `--vision` (fly-eye feed via `flygym.Simulation`).
+
+**7.7 TDD (tests first, per milestone)**:
+- scenes: variant build matrix (variant × asserts: nact, root free?,
+  geoms, keyframes, units); default-scene regression stays green
+  (42 actuators, neutral keyframe, `nmf` site, scale-aware orbit).
+- protocol: round-trip + malformed per new message (whitelist rejects,
+  units, finiteness, partial `set_state`, `spawn` on tethered → 1008).
+- locomotion: pure math, no GL (zero-crossings = freq, L/R symmetry,
+  phase offsets, bounds, determinism).
+- telemetry: values == MjData on the tiny model (fake) + GPU.
+- app e2e: **`mode walk` → root translates > 50 mm within 2 sim s
+  (GPU, the headline test)**; `force` impulse → root velocity spike;
+  `set_state`/`spawn` → root at requested pose; `param gravity 0` →
+  root drifts; `log` on/off → JSONL written and retrievable via /log.
+- DoD per milestone = full suite green + commit (house rule).
+
+**7.8 Budget supplement (§4)** (hard 500-line ceiling unchanged):
+`scenes.py` (new) ≤ 300; `locomotion.py` (new) ≤ 250;
+`telemetry.py` (new) ≤ 200; `protocol.py` 210 → ≤ 380 (split decode
+table if tighter); `app.py` 211 → ≤ 280; `simulation.py` 358 → ≤ 450;
+`cli.py` 149 → ≤ 230; `config.py` 104 → ≤ 160; `web/app.js` 257 → ≤ 480
+(split `app_sandbox.js` ≤ 200 if tighter); tests: `test_scenes.py` ≤ 220,
+`test_locomotion.py` ≤ 150, `test_telemetry.py` ≤ 120 (all new), existing
+protocol/app/gpu suites +≤ 100 each.
+
+**7.9 Milestones**:
+- M7.1 `scenes.py` + `SceneConfig` + CLI flags.
+- M7.2 Protocol v2 control (set_state/spawn/force/param/keyframe/
+  adhesion) + backend dispatch.
+- M7.3 Locomotion (neutral/walk/flap/mode + `loco` tuning).
+- M7.4 Telemetry + model-info + JSONL logging + `GET /log`.
+- M7.5 UI sandbox (DOF table, mode row, perturbation panel, telemetry
+  strip; default UI unchanged).
+- M7.6 Stretch: terrain worlds → tethered → musculoskeletal → vision.
+
+**7.10 Risks & decisions**:
+- Runtime scene rebuild: out of scope v1 (process restart; decision).
+- 133 sliders: virtualization + coalesced sends; DOM never holds > 40
+  rows; slider input batches into one `actuators` message per frame.
+- Telemetry: JSON v1, fixed fields, `--telemetry-hz 0` disables;
+  binary packing only if bandwidth ever matters.
+- Full state write = full physical authority: this is a trusted
+  research tool; binding policy (single client, LAN/SSH-tunnel) and the
+  README security note are unchanged.
+- MJWarp/NoSlip (Phase 6) applies to every DOF preset — the GPU backend
+  still refuses the default scene; CPU is the default path. No new work.
+- Protocol version stays 1 (additive changes only); a version bump
+  happens only if a v1 field is ever renamed.
 
 ## 6. Server environment (record actual values in README)
 

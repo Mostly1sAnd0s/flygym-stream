@@ -87,6 +87,16 @@ open `http://<server-LAN-IP>:8765` (see "Accessing across the LAN").
   the faster path anyway: ~1.5-2x real-time headroom). NoSlip-free models
   step on the GPU and render through the same frame pipeline.
 
+### Next: Phase 7 — research sandbox (planned, see PLAN.md)
+
+Full NeuroMechFly access from the browser: all 133 DOFs (`--dof all`),
+worlds (terrain / tethered), muscle-tendon model, vision, leg adhesion,
+built-in walk/flap locomotion with live parameter tuning, full state
+read/write (`set_state`/`spawn`/`force`/`param`), 10 Hz telemetry
+(qpos/qvel/ctrl, root pose, per-leg ground contact) + JSONL logging,
+and a `model-info` message so arbitrary clients can build their own
+UIs. Milestones M7.1–M7.6 with per-milestone DoDs in PLAN.md.
+
 ### Web UI
 
 - **Video pane**: drag to orbit (azimuth/elevation), scroll to zoom. Frames
