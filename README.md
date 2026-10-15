@@ -129,10 +129,10 @@ JSON protocol (protocol version still 1; all Phase 7 messages are additive):
 - **Logging**: `log {on:0|1}` starts/stops server-side JSONL (telemetry +
   control events) under `logs/`; `GET /log` serves the latest file.
 
-Verified per milestone (M7.1–M7.6): green suite + live serve smokes
-(commit messages `a185829`, `af27734`, `1493b9a`, `eab746b`, `4fa78cc`,
-`e8dbe48`; vision `--vision` is the remaining in-progress item — see
-PLAN.md M7.6 for its exact stop point).
+Verified per milestone (M7.1–M7.6, incl. `--vision`): green suite + live
+serve smokes (commit messages `a185829`, `af27734`, `1493b9a`, `eab746b`,
+`4fa78cc`, `e8dbe48`, plus the M7.6 vision milestone — every commit
+message is a verification record).
 
 ### Web UI
 
@@ -145,7 +145,8 @@ PLAN.md M7.6 for its exact stop point).
 - **Sandbox panels** (Phase 7): mode row (neutral/walk/flap/manual) with
   live gait tuning (freq/amplitude/phase); perturbation panel (spawn x/y/z,
   gravity-z, thorax force pulse, timestep); telemetry strip (root z, |v|,
-  six per-leg contact LEDs, mode).
+  six per-leg contact LEDs, mode); fly-eye vision overlay (top-right, when
+  `--vision`) fed by V1-prefixed frames.
 - **HUD**: sim time, measured fps, backend, model, paused state.
 - **Protocol** (v1, mirrored from `src/flygym_stream/protocol.py`): the
   client sends `hello` first; the server replies with `status` (~1 Hz),

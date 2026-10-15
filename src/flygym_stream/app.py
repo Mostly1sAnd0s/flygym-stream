@@ -52,6 +52,7 @@ class Producer:
         n_dof: model nq for status/model-info (M7.4; None = unknown).
         model_info: static model description (M7.4; None = omit).
         log_dir: JSONL log directory (M7.4).
+        vision_queue: V1-prefixed vision-frame queue (M7.6; None = off).
     """
 
     frames: FrameQueue
@@ -63,6 +64,7 @@ class Producer:
     n_dof: int | None = None
     model_info: dict | None = None
     log_dir: str = "logs"
+    vision_queue: object | None = None
 
 
 def create_app(config: Config, producer: Producer) -> FastAPI:
@@ -128,6 +130,18 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
                         log.exception("telemetry send failed")
                         return
                     _log(item)
+            vision = producer.vision_queue
+            if vision is not None:
+                # V1-prefixed fly-eye frame (M7.6): sent on the same
+                # binary channel; the prefix marks it (main frames are
+                # bare JPEG and never start with 0x56 0x31).
+                vframe = await run_sync(vision.get_nowait)
+                if vframe is not None:
+                    try:
+                        await ws.send_bytes(vframe)
+                    except Exception:
+                        log.exception("vision send failed")
+                        return
             frame = await run_sync(producer.frames.get, FRAME_POLL_S)
             if frame is None:
                 continue

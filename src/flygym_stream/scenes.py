@@ -15,6 +15,7 @@ from typing import Any
 
 import mujoco as mj
 
+from flygym import Simulation as FlygymSimulation
 from flygym.anatomy import (ActuatedDOFPreset, AxisOrder, ContactBodiesPreset,
                             JointPreset, Skeleton)
 from flygym.compose import (ActuatorType, BlocksTerrainWorld, FlatGroundWorld,
@@ -89,8 +90,14 @@ def build_scene(config: SceneConfig) -> Scene:
 
     Raises:
         ValueError: If no model camera can back the render pass
-            (tracking camera off and no eye cameras from vision).
+            (tracking camera off and no eye cameras from vision), or if
+            musculoskeletal and vision are combined (experimental in
+            flygym — M7.6 rejects it by design).
     """
+    if config.musculoskeletal and config.vision:
+        raise ValueError(
+            "musculoskeletal + vision is experimental in flygym (M7.6); "
+            "rebuild without --musculoskeletal or --vision")
     if config.musculoskeletal:
         return _build_musculoskeletal_scene()  # M7.6
     if not config.tracking_camera and not config.vision:
@@ -129,16 +136,27 @@ def build_scene(config: SceneConfig) -> Scene:
         world.add_fly(fly, config.spawn, rotation,
                       bodysegs_with_ground_contact=config.contact_bodies)
 
-    mj_model, mj_data = world.compile()
+    if config.vision:
+        # M7.6: flygym.Simulation compiles the world itself and exposes
+        # mj_model/mj_data; its get_raw_vision renders the eye cameras
+        # (fisheye-corrected) from the SAME MjData the service steps.
+        sim_wrapper = FlygymSimulation(world)
+        mj_model, mj_data = sim_wrapper.mj_model, sim_wrapper.mj_data
+    else:
+        sim_wrapper = None
+        mj_model, mj_data = world.compile()
     # Home root pose for reset(): the spawn (free root only — the
     # tethered world pins the root as a mocap body placed at spawn).
     free_root = mj_model.jnt_type[0] == mj.mjtJoint.mjJNT_FREE
     home_qpos = ([*config.spawn, *config.spawn_quat] if free_root else None)
     scene = Scene(mj_model, mj_data, actuator_ids=list(range(mj_model.nu)),
                   target_site=fly.name,
+                  # Pacing camera for the render pass: the tracking camera,
+                  # or the left eye when tracking is off (vision is on).
                   camera_name=(f"{fly.name}/trackingcam"
-                               if config.tracking_camera else None),
-                  home_qpos=home_qpos)
+                               if config.tracking_camera
+                               else f"{fly.name}/l_eye_cam_camera"),
+                  home_qpos=home_qpos, vision=sim_wrapper)
     scene.reset()  # neutral keyframe + home root + forward pass
     scene.set_orbit_camera(azimuth=DEFAULT_AZIMUTH_DEG,
                            elevation=DEFAULT_ELEVATION_DEG,

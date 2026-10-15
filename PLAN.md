@@ -519,48 +519,27 @@ protocol/app/gpu suites +≤ 100 each.
     `scene` camera; telemetry root falls back to body `Thorax`; CLI
     skips the leg-locomotion engine. Also fixed telemetry starvation
     (send loop checks the telemetry queue every iteration).
-  - 🚧 **Vision (`--vision`) — IN PROGRESS, tests red (TDD stop point):**
-    DONE: `src/flygym_stream/vision.py` (`VisionFeed`: sim-time paced at
-    half output fps, `render_frame()` = `V1` prefix + JPEG of the two
-    fisheye-corrected eyes stacked, via
-    `flygym.Simulation.get_raw_vision(fly_name)`); `Scene.__init__` gains
-    a `vision` param (the flygym.Simulation wrapper); RED tests in
-    `tests/test_scenes.py` (`test_vision_scene_builds_with_eye_cameras`
-    [network], `test_vision_frame_renders_eye_images` [gpu]) and
-    `tests/test_app.py` (`test_ws_vision_frames_pass_through`).
-    REMAINING (in order):
-    1. `scenes.py`: vision build path — when `config.vision` (and not
-       musculoskeletal): construct the model via
-       `sim_wrapper = flygym.Simulation(world)` and use
-       `sim_wrapper.mj_model/mj_data` (Simulation.__init__ calls
-       world.compile()); pass `vision=sim_wrapper` to `Scene(...)`;
-       raise ValueError for musculoskeletal+vision (MSK vision is
-       experimental in flygym). Note: `Simulation` import is
-       `from flygym import Simulation as FlygymSimulation` (it is in
-       flygym's top-level `__all__`).
-    2. `simulation.py` SimThread: new kwarg `vision: object | None`
-       (a VisionFeed); in `tick()` after `_maybe_telemetry()`:
-       `if self._vision is not None and self._vision.render_as_needed(self._backend.data): self._vision_queue.put(self._vision.render_frame())`
-       (add `vision_queue: object | None` kwarg too; call on sim
-       thread — GL context binds to creating thread).
-    3. `app.py`: `Producer.vision_queue: object | None = None`; send
-       loop: after the telemetry check, `vframe = await run_sync(
-       producer.vision_queue.get_nowait)` → `await ws.send_bytes(vframe)`
-       (V1-prefixed binary; main frames stay unprefixed).
-    4. `cli.py` serve: when `scene.vision is not None`:
-       `from flygym_stream.vision import VisionFeed`; build
-       `vision_feed = VisionFeed(scene, config)`, a `vision_frames =
-       FrameQueue()`, pass `vision=vision_feed, vision_queue=vision_frames`
-       to SimThread and `vision_queue=vision_frames` to Producer.
-    5. `web/index.html`: `<img id="vision" alt="fly vision" class="hidden">
-       overlay in `#video-pane`; `web/style.css`: position it (e.g.
-       top-right, ~180 px wide, opacity 0.9); `web/app.js`: make
-       `ws.onmessage` handle binary async — if the first 2 bytes are
-       `V1` (0x56 0x31) route `new Blob([ev.data.slice(2)])` to the
-       vision `<img>`; otherwise the existing `onFrame`.
-    6. Optional: `scripts/ui_smoke.cjs` check for the V1 routing.
-    7. Full regression (default+gpu+network+ui_smoke) + live serve
-       `--vision` smoke (status/model-info + vision frames) + commit.
+  - ✅ Vision (`--vision`):
+    Vision scenes build through `flygym.Simulation(world)` (it compiles
+    the world itself and exposes `mj_model`/`mj_data`; the Scene steps
+    the SAME MjData the eye renderer reads); model cameras are
+    `nmf/trackingcam` + `nmf/l_eye_cam_camera` + `nmf/r_eye_cam_camera`
+    (ncam==3); the render-pass pacing camera falls back to the left eye
+    when the tracking camera is off; musculoskeletal+vision is rejected
+    with ValueError (experimental in flygym). `SimThread` gains
+    `vision`/`vision_queue` kwargs; `_maybe_vision()` runs after
+    `_maybe_telemetry()` (sim-time paced at half the output fps, on the
+    sim thread — the eye renderer's GL context binds to it). The app
+    send loop drains the vision queue every iteration exactly like
+    telemetry (V1-prefixed binary on the same WS channel; main frames
+    stay bare JPEG — no protocol.py change). UI: `#vision` overlay
+    (top-right, 180 px, pointer-events none) revealed on the first V1
+    frame; `onBinary` routes 0x56 0x31 frames to the vision img, bare
+    JPEGs to the main img. Verified: GPU test (V1 + real fisheye-eye
+    JPEG, PIL decodes 450x1024 stacked eyes, non-black), network test
+    (ncam==3, scene steps), WS V1 pass-through test, ui_smoke V1
+    routing (4 checks), live `serve --vision` (status/model-info +
+    V1 vision frames interleaved with main frames).
   - Wire note: vision framing is binary (no protocol.py change); main
     MJPEG frames = bare JPEG, vision frames = `V1` + JPEG.
 

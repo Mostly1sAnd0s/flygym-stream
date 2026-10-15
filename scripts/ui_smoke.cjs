@@ -83,6 +83,16 @@ let rafQueue = [];
 global.requestAnimationFrame = (fn) => { rafQueue.push(fn); return rafQueue.length; };
 function flushRaf() { const q = rafQueue; rafQueue = []; for (const fn of q) fn(); }
 
+/* Blob/URL fakes for the MJPEG <img> swap path (M7.6 onBinary checks). */
+let blobCounter = 0;
+global.Blob = class {
+  constructor(parts, opts) { this.parts = parts; this.type = (opts || {}).type; }
+};
+global.URL = {
+  createObjectURL: () => `blob:fake-${++blobCounter}`,
+  revokeObjectURL: () => {},
+};
+
 /* --- model-info fixture (shape of telemetry.gather_model_info) -------------- */
 const N = 132;
 const modelInfo = {
@@ -107,7 +117,7 @@ function check(cond, what) {
 
 /* --- load both UI files in one scope, then run the harness ------------------- */
 const harness = `
-;(function () {
+;(async function () {
   const $ = (id) => document.getElementById(id);
   /* mode buttons need the class before Sandbox wires them */
   ["neutral", "walk", "flap", "manual"].forEach((m) => {
@@ -221,6 +231,28 @@ const harness = `
   $("btn-log").fire("click");
   check(JSON.stringify(__sent.filter((m) => m.type === "log").pop())
         === JSON.stringify({ type: "log", on: 1 }), "log on message shape");
+
+  /* V1 vision routing (M7.6): a V1-prefixed binary frame goes to the
+     vision <img> (prefix stripped); a bare JPEG goes to the main <img> */
+  const frame = (bytes) => ({
+    slice: (start, end) => ({
+      arrayBuffer: async () =>
+        new Uint8Array(bytes.slice(start, end)).buffer,
+    }),
+  });
+  await onBinary(frame([0x56, 0x31, 0xff, 0xd8, 0x0a, 0x0b]));
+  check(els.get("vision").classList.contains("hidden") === false,
+        "V1 frame reveals the vision pane");
+  const visionSrc = els.get("vision").src;
+  check(typeof visionSrc === "string" && visionSrc.startsWith("blob:"),
+        "V1 frame (prefix stripped) routed to the vision <img>");
+  const mainSrcBefore = els.get("video").src;
+  await onBinary(frame([0xff, 0xd8, 0x09, 0x00, 0x42]));
+  check(els.get("video").src !== mainSrcBefore
+        && els.get("video").src.startsWith("blob:"),
+        "bare JPEG frame goes to the main <img>");
+  check(els.get("vision").src === visionSrc,
+        "bare JPEG leaves the vision pane untouched");
 })();
 `;
 
@@ -243,15 +275,21 @@ globalThis.__check = check;
 globalThis.__N = N;
 globalThis.__flushRaf = flushRaf;
 
+let pending;
 try {
-  new Function(src)();
+  pending = new Function(src)();
 } catch (err) {
   failures += 1;
   console.error(" UI smoke crashed:", err.stack);
 }
-
-if (failures) {
-  console.error(`\n${failures} UI smoke check(s) FAILED`);
+Promise.resolve(pending).then(() => {
+  if (failures) {
+    console.error(`\n${failures} UI smoke check(s) FAILED`);
+    process.exit(1);
+  }
+  console.log("\nUI smoke: all checks passed");
+}).catch((err) => {
+  failures += 1;
+  console.error(" UI smoke crashed:", err.stack);
   process.exit(1);
-}
-console.log("\nUI smoke: all checks passed");
+});

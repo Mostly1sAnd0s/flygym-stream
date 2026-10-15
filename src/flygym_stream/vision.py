@@ -44,6 +44,7 @@ class VisionFeed:
                 "VisionFeed needs a vision scene (SceneConfig(vision=True))")
         self._scene = scene
         self._interval = 2.0 / max(1, int(config.output_fps))
+        self._quality = int(config.jpeg_quality)
         self._last = -np.inf
 
     def render_as_needed(self, data) -> bool:
@@ -66,4 +67,5 @@ class VisionFeed:
         if left.dtype != np.uint8:
             left = np.clip(left, 0, 255).astype(np.uint8)
             right = np.clip(right, 0, 255).astype(np.uint8)
-        return VISION_PREFIX + encode_jpeg(np.vstack((left, right)))
+        return VISION_PREFIX + encode_jpeg(np.vstack((left, right)),
+                                           self._quality)

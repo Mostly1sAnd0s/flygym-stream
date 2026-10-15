@@ -41,6 +41,14 @@ class FrameQueue:
         except queue.Empty:
             return None
 
+    def get_nowait(self) -> bytes | None:
+        """Pop the queued frame without waiting; None when empty (the WS
+        send loop drains the vision queue this way, M7.6)."""
+        try:
+            return self._q.get_nowait()
+        except queue.Empty:
+            return None
+
     def __len__(self) -> int:
         return self._q.qsize()
 

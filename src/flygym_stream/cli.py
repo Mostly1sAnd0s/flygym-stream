@@ -131,13 +131,22 @@ def serve(args: argparse.Namespace) -> None:
         gatherer=TelemetryGatherer(scene.mj_model, scene.mj_data,
                                    model_info=model_info),
         queue=TelemetryQueue(), hz=config.telemetry_hz)
+    vision_feed, vision_frames = None, None
+    if scene.vision is not None:
+        # M7.6: the vision scene carries a flygym.Simulation wrapper;
+        # its eye frames (V1-prefixed) flow on the same WS binary channel.
+        from flygym_stream.vision import VisionFeed
+        vision_feed = VisionFeed(scene, config)
+        vision_frames = FrameQueue()
     sim = SimThread(backend, renderer, frames, inputs, config, loco=loco,
-                    telemetry=telemetry)
+                    telemetry=telemetry, vision=vision_feed,
+                    vision_queue=vision_frames)
     sim.start()
     app = create_app(config, Producer(frames, inputs, backend, sim,
                                       telemetry_queue=telemetry.queue,
                                       n_dof=scene.mj_model.nq,
-                                      model_info=model_info))
+                                      model_info=model_info,
+                                      vision_queue=vision_frames))
     print(f"flygym-stream serving on http://{config.bind}:{config.port}")
     try:
         uvicorn.run(app, host=config.bind, port=config.port, log_level="warning")

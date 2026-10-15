@@ -58,12 +58,14 @@ const state = {
   reconnectDelay: 1000,
   orbitThrottle: 0,
   lastFrameUrl: null,
+  lastVisionUrl: null,
 };
 
 /* --- DOM ------------------------------------------------------------------ */
 const $ = (id) => document.getElementById(id);
 const video = $("video");
 const videoWebrtc = $("video-webrtc");
+const visionImg = $("vision");  // M7.6: fly-eye overlay (serve --vision)
 const hud = $("hud");
 const orbitState = $("orbit-state");
 const slidersEl = $("sliders");
@@ -94,7 +96,7 @@ function connect() {
     if (typeof ev.data === "string") {
       onText(JSON.parse(ev.data));
     } else if (!WEBCRTC) {
-      onFrame(ev.data);
+      onBinary(ev.data);
     }
   };
 
@@ -171,6 +173,26 @@ function onFrame(blob) {
   if (state.lastFrameUrl) URL.revokeObjectURL(state.lastFrameUrl);
   state.lastFrameUrl = url;
   video.src = url;
+}
+
+async function onBinary(data) {
+  // Binary frames (M7.6): V1-prefixed (0x56 0x31) = fly-eye vision frame
+  // (serve --vision); anything else is the bare main MJPEG frame — a
+  // real JPEG never starts with the bytes "V1".
+  const head = new Uint8Array(await data.slice(0, 2).arrayBuffer());
+  if (head.length === 2 && head[0] === 0x56 && head[1] === 0x31) {
+    visionImg.classList.remove("hidden");
+    onVisionFrame(new Blob([data.slice(2)], { type: "image/jpeg" }));
+  } else {
+    onFrame(data);
+  }
+}
+
+function onVisionFrame(blob) {
+  const url = URL.createObjectURL(blob);
+  if (state.lastVisionUrl) URL.revokeObjectURL(state.lastVisionUrl);
+  state.lastVisionUrl = url;
+  visionImg.src = url;
 }
 
 function setHud(text, cls) {

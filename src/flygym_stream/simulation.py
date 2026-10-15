@@ -281,7 +281,8 @@ class SimThread:
     def __init__(self, backend: Backend, renderer: object, frames: FrameQueue,
                  inputs: InputQueue, config: Config, *, clock=time.monotonic,
                  sleep=time.sleep, loco: object | None = None,
-                 telemetry: object | None = None) -> None:
+                 telemetry: object | None = None, vision: object | None = None,
+                 vision_queue: object | None = None) -> None:
         self._backend = backend
         self._renderer = renderer
         self._frames = frames
@@ -294,6 +295,8 @@ class SimThread:
         self._thread: threading.Thread | None = None
         self._loco = loco  # M7.3 pattern engine (None = no built-in gait)
         self._telemetry = telemetry  # M7.4 TelemetrySink (None = off)
+        self._vision = vision  # M7.6 VisionFeed (None = off)
+        self._vision_queue = vision_queue  # M7.6 (V1-prefixed frames)
         self._next_telemetry = 0.0
         self._rebase()
 
@@ -375,6 +378,7 @@ class SimThread:
             self._loco_apply()
             self._backend.step(self._backend.dt)
         self._maybe_telemetry()
+        self._maybe_vision()
         self._push_frame()
 
     def _loco_apply(self) -> None:
@@ -396,6 +400,18 @@ class SimThread:
         self._next_telemetry = (int(t // interval) + 1) * interval
         sink.queue.put(sink.gatherer.gather(
             paused=False, mode=self.loco_mode))
+
+    def _maybe_vision(self) -> None:
+        """Render the fly-eye frame if due (M7.6): sim-time paced, on the
+        sim thread (the eye renderer's GL context binds to this thread);
+        the V1-prefixed bytes go to the vision queue, which the WS send
+        loop checks every iteration (same starvation rule as telemetry).
+        """
+        feed = self._vision
+        if feed is None or self._vision_queue is None:
+            return
+        if feed.render_as_needed(self._backend.data):
+            self._vision_queue.put(feed.render_frame())
 
     def _rebase(self) -> None:
         self._t0_wall, self._t0_sim = self._clock(), self._backend.time
