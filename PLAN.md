@@ -500,8 +500,12 @@ protocol/app/gpu suites +≤ 100 each.
     instead; binding enum names come from `mjtJoint(v).name` (HINGE=3
     there, not 1); FastAPI cannot take union return annotations on
     routes (`/log` returns FileResponse|JSONResponse un-annotated).
-- M7.5 UI sandbox (DOF table, mode row, perturbation panel, telemetry
-  strip; default UI unchanged).
+- ~~M7.5 UI sandbox (DOF table, mode row, perturbation panel, telemetry
+  strip; default UI unchanged).~~ ✅ `4fa78cc`
+  - Impl notes: sandbox UI in `web/app_sandbox.js` (fake-DOM headless test
+    `scripts/ui_smoke.cjs`, 19 checks); ctrl shadow resyncs from telemetry
+    (skips dirty/dragged indices) so pattern-mode gait is visible in the
+    sliders; `actuators` sends are full-array + coalesced per rAF.
 - M7.6 Stretch: terrain worlds → tethered → musculoskeletal → vision.
 
 **7.10 Risks & decisions**:

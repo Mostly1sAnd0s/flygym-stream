@@ -113,21 +113,23 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
 
     async def _send_loop(ws: WebSocket) -> None:
         """Pop frames (threaded, non-blocking server) and send binary;
-        multiplex latest-wins telemetry text (M7.4) between frames."""
+        multiplex latest-wins telemetry text every iteration (checked
+        before the frame so the full frame queue can never starve it).
+        """
         last = None
         while True:
+            telemetry = producer.telemetry_queue
+            if telemetry is not None:
+                item = await run_sync(telemetry.get_nowait)
+                if item is not None:
+                    try:
+                        await ws.send_text(encode_telemetry(item))
+                    except Exception:
+                        log.exception("telemetry send failed")
+                        return
+                    _log(item)
             frame = await run_sync(producer.frames.get, FRAME_POLL_S)
             if frame is None:
-                telemetry = producer.telemetry_queue
-                if telemetry is not None:
-                    item = await run_sync(telemetry.get_nowait)
-                    if item is not None:
-                        try:
-                            await ws.send_text(encode_telemetry(item))
-                        except Exception:
-                            log.exception("telemetry send failed")
-                            return
-                        _log(item)
                 continue
             now = time.monotonic()
             if last is not None and now > last:

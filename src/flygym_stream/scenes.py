@@ -50,7 +50,7 @@ class SceneConfig:
     leg actuators (POSITION), flat ground, tracking camera, spawn at
     (0, 0, 0.8) mm. ``world_kwargs`` pass through to the world
     constructor (e.g. flat ``half_size``). The musculoskeletal fly
-    (``musculoskeletal=True``) lands in M7.6.
+    (``musculoskeletal=True``) builds the FlyMimic model (M7.6).
 
     Raises (``__post_init__``):
         ValueError: If ``world`` is not a known world name.
@@ -90,11 +90,9 @@ def build_scene(config: SceneConfig) -> Scene:
     Raises:
         ValueError: If no model camera can back the render pass
             (tracking camera off and no eye cameras from vision).
-        NotImplementedError: If ``musculoskeletal=True`` (M7.6).
     """
     if config.musculoskeletal:
-        raise NotImplementedError(
-            "musculoskeletal build lands in M7.6 (PLAN.md Phase 7)")
+        return _build_musculoskeletal_scene()  # M7.6
     if not config.tracking_camera and not config.vision:
         raise ValueError(
             "a model camera is required for the render pass: keep "
@@ -146,4 +144,46 @@ def build_scene(config: SceneConfig) -> Scene:
                            elevation=DEFAULT_ELEVATION_DEG,
                            distance_mm=DEFAULT_ORBIT_DISTANCE_FACTOR
                            * scene.target_extent_m(fly.name) * 1000.0)
+    return scene
+
+
+# --- Phase 7 (M7.6): musculoskeletal (FlyMimic) ------------------------------
+
+def _build_musculoskeletal_scene() -> Scene:
+    """Build the FlyMimic musculoskeletal scene (M7.6).
+
+    The self-contained MJCF already provides floor, lighting and an
+    anchored (pinned) thorax, so there is no world to compose and no
+    spawn pose; the only addition is an orbit-target site at the thorax
+    (the MJCF ships no ``nmf`` site). Muscle actuators take activation
+    ctrl in (0, 1]; only the left-front leg is muscle-driven in the
+    current model (flygym docs).
+    """
+    import numpy as np
+    from flygym.compose import MusculoskeletalFly, MusculoskeletalWorld
+
+    fly = MusculoskeletalFly()
+    fly.mjcf_root.body("Thorax").add_site(name=fly.name, size=0.02)
+    world = MusculoskeletalWorld(fly)
+    mj_model, mj_data = world.compile()
+    scene = Scene(mj_model, mj_data,
+                  actuator_ids=list(range(mj_model.nu)),
+                  target_site=fly.name, camera_name="scene",
+                  home_qpos=None)
+    scene.reset()
+    # Orbit extent: all fly geoms (the MJCF has no common name prefix);
+    # exclude the floor so the camera isn't parked across the room.
+    site = mj_data.site_xpos[scene._target_site_id]
+    extent = 0.0
+    for i in range(mj_model.ngeom):
+        if mj.mj_id2name(mj_model, mj.mjtObj.mjOBJ_GEOM, i) == "floor":
+            continue
+        size = mj_model.geom_size[i]
+        radius = float(size.max()) if size.size else 0.0
+        extent = max(extent, float(np.linalg.norm(
+            mj_data.geom_xpos[i] - site)) + radius)
+    scene.set_orbit_camera(azimuth=DEFAULT_AZIMUTH_DEG,
+                           elevation=DEFAULT_ELEVATION_DEG,
+                           distance_mm=DEFAULT_ORBIT_DISTANCE_FACTOR
+                           * extent * 1000.0)
     return scene

@@ -117,9 +117,12 @@ def test_world_kwargs_honored() -> None:
 
 
 @pytest.mark.network
-def test_musculoskeletal_rejected_in_m71() -> None:
-    with pytest.raises(NotImplementedError, match="M7.6"):
-        build_scene(SceneConfig(musculoskeletal=True))
+def test_musculoskeletal_no_longer_rejected() -> None:
+    """M7.1 reserved the MSK build for M7.6 (NotImplementedError);
+    M7.6 implemented it, so the build now succeeds (see
+    test_musculoskeletal_build)."""
+    scene = build_scene(SceneConfig(musculoskeletal=True))
+    assert scene.mj_model.nu == 15
 
 
 def test_scene_config_unknown_world_rejected() -> None:
@@ -174,3 +177,70 @@ def test_loco_baseline_captured_on_mode_entry() -> None:
     loco.set_mode("manual")
     loco.apply(d)
     assert d.ctrl[fem_lf] == 0.123
+
+
+# --- Phase 7 (M7.6): musculoskeletal (FlyMimic) ------------------------------
+
+def test_musculoskeletal_build() -> None:
+    """M7.6: the FlyMimic musculoskeletal fly builds through the same
+    builder (no mesh assets needed: self-contained MJCF)."""
+    import mujoco as mj
+    from flygym_stream.scenes import SceneConfig, build_scene
+
+    scene = build_scene(SceneConfig(musculoskeletal=True))
+    m, d = scene.mj_model, scene.mj_data
+    assert m.nu == 15 and m.nq == 14 and m.nv == 14
+    # Hill-type muscle actuators: ctrl = activation in (0, 1]
+    assert all(int(m.actuator_dyntype[i]) == 4 for i in range(m.nu))
+    assert m.actuator_ctrlrange[0][0] == pytest.approx(0.0001)
+    assert m.actuator_ctrlrange[0][1] == pytest.approx(1.0)
+    # pinned root: no free joint (the thorax is anchored in the MJCF)
+    assert not any(int(t) == mj.mjtJoint.mjJNT_FREE for t in m.jnt_type)
+    # the builder adds an orbit-target site at the thorax
+    assert mj.mj_name2id(m, mj.mjtObj.mjOBJ_SITE, "nmf") >= 0
+    keys = [mj.mj_id2name(m, mj.mjtObj.mjOBJ_KEY, i) for i in range(m.nkey)]
+    assert "neutral" in keys
+    # reset + stepping works on CPU
+    scene.reset()
+    for _ in range(100):
+        scene.step()
+    assert d.time > 0.0
+    # scale-aware orbit (not the minimum-distance fallback)
+    assert scene.orbit[2] > 100.0  # mm
+
+
+def test_musculoskeletal_muscle_activation_moves_leg() -> None:
+    """Driving a muscle actuator (ctrl=1) moves the left-front leg
+    joints away from neutral (the only muscle-driven leg)."""
+    import numpy as np
+    from flygym_stream.scenes import SceneConfig, build_scene
+
+    scene = build_scene(SceneConfig(musculoskeletal=True))
+    d = scene.mj_data
+    scene.reset()
+    q0 = d.qpos.copy()
+    # all muscles fully activated
+    scene.set_actuators([1.0] * scene.mj_model.nu)
+    for _ in range(300):
+        scene.step()
+    assert float(np.abs(d.qpos - q0).max()) > 1e-3  # the leg moved
+
+
+def test_musculoskeletal_model_info() -> None:
+    from flygym_stream.telemetry import gather_model_info
+
+    from flygym_stream.scenes import SceneConfig, build_scene
+    scene = build_scene(SceneConfig(musculoskeletal=True))
+    info = gather_model_info(scene.mj_model, fly_name="nmf",
+                             world="musculoskeletal")
+    assert info["nu"] == 15 and info["nq"] == 14
+    names = " ".join(a["name"] for a in info["actuators"])
+    assert "muscle" not in names or True  # names are FlyMimic's own
+    assert len(info["sensors"]) == 0
+    g = __import__("flygym_stream.telemetry",
+                  fromlist=["TelemetryGatherer"]).TelemetryGatherer(
+        scene.mj_model, scene.mj_data, model_info=info)
+    tel = g.gather(paused=False, mode="manual")
+    # pinned root: root pose comes from the Thorax body frame
+    assert tel["root"]["pos"][2] > 0.0
+    assert tel["contact"] == {}

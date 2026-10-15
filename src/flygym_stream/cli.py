@@ -95,7 +95,6 @@ def serve(args: argparse.Namespace) -> None:
 
     from flygym_stream.app import Producer, create_app
     from flygym_stream.config import Config
-    from flygym_stream.locomotion import LocController
     from flygym_stream.rendering import OffscreenRenderer
     from flygym_stream.simulation import SimThread, make_backend
     from flygym_stream.stream import FrameQueue, InputQueue
@@ -116,10 +115,18 @@ def serve(args: argparse.Namespace) -> None:
     backend = make_backend(scene, config)
     renderer = OffscreenRenderer(scene, config)
     frames, inputs = FrameQueue(), InputQueue()
-    loco = LocController(scene.mj_model, scene.neutral_actuators(),
-                         fly_name=scene.fly_name)
-    model_info = gather_model_info(scene.mj_model, fly_name=scene.fly_name,
-                                   world=args.world)
+    loco = None
+    if not args.musculoskeletal:
+        from flygym_stream.locomotion import LocController
+        loco = LocController(scene.mj_model, scene.neutral_actuators(),
+                             fly_name=scene.fly_name)
+    else:
+        print("note: musculoskeletal build has no leg actuators — the "
+              "built-in locomotion modes are unavailable (muscle actuators "
+              "take activation ctrl 0..1)")
+    model_info = gather_model_info(
+        scene.mj_model, fly_name=scene.fly_name,
+        world=("musculoskeletal" if args.musculoskeletal else args.world))
     telemetry = TelemetrySink(
         gatherer=TelemetryGatherer(scene.mj_model, scene.mj_data,
                                    model_info=model_info),

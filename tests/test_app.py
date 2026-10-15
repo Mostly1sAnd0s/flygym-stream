@@ -301,3 +301,43 @@ def test_log_on_off_and_get_log(log_app_env, tmp_path) -> None:
         orbits = [l for l in lines if l.get("msg", {}).get("type") == "orbit"]
         assert orbits, lines
         assert orbits[0]["msg"]["azimuth"] == 12.0
+
+
+def test_ws_telemetry_not_starved_by_frames(
+        tmp_config, fake_backend, fake_renderer) -> None:
+    """M7.4 regression: telemetry text must keep flowing while the
+    (always-full) frame queue streams continuously — the send loop
+    checks the telemetry queue every iteration, not only when a frame
+    poll times out."""
+    import asyncio
+    from flygym_stream.telemetry import TelemetryQueue
+
+    frames, inputs = FrameQueue(), InputQueue()
+    sim = SimThread(fake_backend, fake_renderer, frames, inputs, tmp_config)
+    sim.start()
+    tqueue = TelemetryQueue()
+    app = create_app(tmp_config, Producer(frames, inputs, fake_backend, sim,
+                                          telemetry_queue=tqueue))
+    received: list[dict] = []
+    try:
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws") as ws:
+                ws.send_text(HELLO)
+                recv_status(ws)
+                # wait a couple of real frames so the frame queue is
+                # demonstrably streaming, then push telemetry
+                recv_frame(ws)
+                recv_frame(ws)
+                tqueue.put({"t": 0.5, "qpos": [0.0]})
+                deadline = time.monotonic() + 3.0
+                while time.monotonic() < deadline:
+                    msg = ws.receive()
+                    if msg.get("text"):
+                        data = json.loads(msg["text"])
+                        if data.get("type") == "telemetry":
+                            received.append(data)
+                            break
+                assert received, "telemetry starved by continuous frames"
+                assert received[0]["t"] == 0.5
+    finally:
+        sim.stop()

@@ -125,9 +125,16 @@ class TelemetryGatherer:
         # (tethered/fixed-root worlds pin the root joint).
         self._root_free = (
             model.njnt > 0 and model.jnt_type[0] == mj.mjtJoint.mjJNT_FREE)
-        self._thorax_body = mj.mj_name2id(
-            model, mj.mjtObj.mjOBJ_BODY, f"{model_info.get('fly_name', 'nmf')}"
-            "/c_thorax")
+        # Root body fallback when the root is pinned: the composable
+        # scenes call it `nmf/c_thorax`; the FlyMimic MSK model (M7.6)
+        # calls it `Thorax`.
+        self._thorax_body = -1
+        for name in (f"{model_info.get('fly_name', 'nmf')}/c_thorax",
+                     "Thorax"):
+            self._thorax_body = mj.mj_name2id(
+                model, mj.mjtObj.mjOBJ_BODY, name)
+            if self._thorax_body >= 0:
+                break
         # Leg ground-contact sensor data addresses (may be absent).
         self._contact: dict[str, tuple[int, int]] = {}
         for leg in CONTACT_SENSOR_NAMES:
