@@ -148,10 +148,12 @@ def test_scene_exposes_current_orbit_state(fly_scene: Scene) -> None:
 
 
 def test_model_is_built_only_in_scene_module() -> None:
-    """DRY guard: the fly model is constructed in scene.py and nowhere else."""
+    """DRY guard: the fly model is constructed in the scene layer
+    (scene.py / scenes.py, PLAN.md Phase 7 M7.1) and nowhere else."""
+    allowed = {"scene.py", "scenes.py"}
     offenders = []
     for path in sorted(SRC.glob("*.py")):
-        if path.name == "scene.py":
+        if path.name in allowed:
             continue
         text = path.read_text(encoding="utf-8")
         if "NeuroMechFly(" in text or "FlatGroundWorld(" in text:

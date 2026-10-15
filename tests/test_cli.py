@@ -118,3 +118,42 @@ def test_serve_cli_smoke() -> None:
     finally:
         proc.terminate()
         proc.wait(timeout=15)
+
+
+def test_scene_config_from_args_defaults() -> None:
+    """serve flag defaults reproduce the historical default scene config
+    (PLAN.md Phase 7, M7.1)."""
+    import argparse
+    from flygym.anatomy import ActuatedDOFPreset
+    from flygym.compose import ActuatorType, MeshType
+    from flygym_stream.cli import scene_config_from_args
+
+    args = argparse.Namespace(
+        dof="legs-active", mesh="fullsize", actuator="position", world="flat",
+        spawn="0,0,0.8", vision=False, adhesion=False, musculoskeletal=False,
+    )
+    cfg = scene_config_from_args(args)
+    assert cfg.actuated_preset is ActuatedDOFPreset.LEGS_ACTIVE_ONLY
+    assert cfg.mesh_type is MeshType.FULLSIZE
+    assert cfg.actuator_type is ActuatorType.POSITION
+    assert cfg.world == "flat" and cfg.spawn == (0.0, 0.0, 0.8)
+    assert not (cfg.vision or cfg.adhesion or cfg.musculoskeletal)
+
+
+def test_scene_config_from_args_flags() -> None:
+    import argparse
+    from flygym.anatomy import ActuatedDOFPreset
+    from flygym.compose import ActuatorType, MeshType
+    from flygym_stream.cli import scene_config_from_args
+
+    args = argparse.Namespace(
+        dof="all", mesh="simplified", actuator="velocity", world="tethered",
+        spawn="1,2,3.5", vision=True, adhesion=True, musculoskeletal=False,
+    )
+    cfg = scene_config_from_args(args)
+    assert cfg.actuated_preset is ActuatedDOFPreset.ALL
+    assert cfg.mesh_type is MeshType.SIMPLIFIED_MAX2000FACES
+    assert cfg.actuator_type is ActuatorType.VELOCITY
+    assert cfg.world == "tethered"
+    assert cfg.spawn == (1.0, 2.0, 3.5)
+    assert cfg.vision and cfg.adhesion

@@ -55,6 +55,35 @@ def render_preview(args: argparse.Namespace) -> None:
     print(f"wrote {len(frames)} frames ({args.duration} sim s) -> {args.out}")
 
 
+def scene_config_from_args(args: argparse.Namespace) -> object:
+    """Map serve flags to a SceneConfig (PLAN.md Phase 7, M7.1).
+
+    Args: parsed serve namespace (dof/mesh/actuator/world/spawn/vision/
+        adhesion/musculoskeletal). Returns a ``flygym_stream.scenes.
+        SceneConfig`` (imported lazily with the other scene-layer imports).
+    """
+    from flygym.anatomy import ActuatedDOFPreset
+    from flygym.compose import ActuatorType, MeshType
+    from flygym_stream.scenes import SceneConfig
+
+    dof = {"all": ActuatedDOFPreset.ALL,
+           "legs": ActuatedDOFPreset.LEGS_ONLY,
+           "legs-active": ActuatedDOFPreset.LEGS_ACTIVE_ONLY}[args.dof]
+    mesh = {"fullsize": MeshType.FULLSIZE,
+            "simplified": MeshType.SIMPLIFIED_MAX2000FACES}[args.mesh]
+    try:
+        spawn = tuple(float(v) for v in args.spawn.split(","))
+    except ValueError:
+        sys.exit(f"--spawn expects x,y,z numbers, got {args.spawn!r}")
+    if len(spawn) != 3:
+        sys.exit(f"--spawn expects x,y,z, got {len(spawn)} values")
+    return SceneConfig(actuated_preset=dof, mesh_type=mesh,
+                       actuator_type=ActuatorType[args.actuator.upper()],
+                       world=args.world, spawn=spawn, vision=args.vision,
+                       adhesion=args.adhesion,
+                       musculoskeletal=args.musculoskeletal)
+
+
 def serve(args: argparse.Namespace) -> None:
     """Run the MJPEG-over-WebSocket streaming service (Phase 5 DoD).
 
@@ -77,7 +106,8 @@ def serve(args: argparse.Namespace) -> None:
                     height=args.height, output_fps=args.fps,
                     backend=args.backend, playback_speed=args.speed,
                     overlay=args.overlay, transport=args.transport)
-    scene = build_default_scene()
+    from flygym_stream.scenes import build_scene
+    scene = build_scene(scene_config_from_args(args))
     backend = make_backend(scene, config)
     renderer = OffscreenRenderer(scene, config)
     frames, inputs = FrameQueue(), InputQueue()
@@ -131,6 +161,31 @@ def main(argv: list[str] | None = None) -> None:
                     choices=["mjpeg", "webrtc"],
                     help="frame transport; webrtc needs the 'webrtc' extra "
                          "and ?webrtc in the browser URL (Phase 6)")
+    # Scene variants (PLAN.md Phase 7, M7.1)
+    sv.add_argument("--dof", default="legs-active",
+                    choices=["all", "legs", "legs-active"],
+                    help="actuated DOF preset: all = 126 actuators "
+                         "(incl. wings), default = 42 active leg DOFs")
+    sv.add_argument("--mesh", default="fullsize",
+                    choices=["fullsize", "simplified"],
+                    help="mesh fidelity (simplified = <=2000 faces/geom)")
+    sv.add_argument("--actuator", default="position",
+                    choices=["motor", "position", "velocity", "intvelocity",
+                             "damper", "cylinder", "muscle", "adhesion",
+                             "tendon"],
+                    help="actuator type for the actuated DOFs")
+    sv.add_argument("--world", default="flat",
+                    choices=["flat", "blocks", "gapped", "mixed", "tethered"],
+                    help="world: terrain variants, or tethered = body pinned "
+                         "(motor-control experiments)")
+    sv.add_argument("--spawn", default="0,0,0.8",
+                    help="root spawn position x,y,z (model units, mm)")
+    sv.add_argument("--vision", action="store_true",
+                    help="add the fly's eye cameras (compound-eye sensors)")
+    sv.add_argument("--adhesion", action="store_true",
+                    help="add leg adhesion actuators (6 extra)")
+    sv.add_argument("--musculoskeletal", action="store_true",
+                    help="muscle/tendon model (M7.6; rejected until then)")
     sv.add_argument("--insecure", action="store_true",
                     help="allow binding 0.0.0.0 (PLAN.md §6)")
     sv.set_defaults(func=serve)
