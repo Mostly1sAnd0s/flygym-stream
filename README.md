@@ -148,8 +148,14 @@ record).
 
 ### Web UI
 
-- **Video pane**: drag to orbit (azimuth/elevation), scroll to zoom. Frames
-  are MJPEG over WebSocket at the configured fps.
+- **Video pane**: drag to orbit (azimuth/elevation), scroll to zoom. The
+  viewcube (top-left) snaps the orbit to a side of the fly — `front` is
+  where it faces, and the cube tracks the live camera and the fly's
+  heading. The camera row switches the camera mode: `orbit` (free),
+  `1st` (top of the head, looking forward) and `3rd` (trailing behind
+  and above the fly); the body views follow the fly's motion and
+  heading, and dragging the video switches back to `orbit`. Frames are
+  MJPEG over WebSocket at the configured fps.
 - **Controls**: one slider per actuated DOF (42 in the default scene;
   builds with >42 actuators get the virtualized DOF table with live qpos
   readouts), `pause` / `resume` / `step` / `reset` / `log` buttons, and a
@@ -167,8 +173,10 @@ record).
   `model-info`, then periodic `telemetry`, plus binary JPEG frames; control
   messages (`orbit`, `actuator(s)`, `neutral`, `pause`, `resume`, `step`,
   `speed`, `reset`, `set_state`, `spawn`, `force`, `param`, `keyframe`,
-  `adhesion`, `mode`, `loco`, `log`, `info`) are forwarded to the sim
-  thread. One client at a time — a second connection is rejected with
+  `adhesion`, `mode`, `loco`, `camera`, `log`, `info`) are forwarded to the
+  sim thread. `camera` takes a `mode` (`orbit`/`first`/`third`) and/or a
+  `view` (`front`/`back`/`left`/`right`/`top`/`bottom`, viewcube); `status`
+  carries the live camera state in `orbit` and the mode in `cam_mode`. One client at a time — a second connection is rejected with
   close code 1013 / `single-client`. Malformed input closes that
   connection with 1008; the server keeps running.
 

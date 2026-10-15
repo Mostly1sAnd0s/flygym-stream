@@ -112,6 +112,7 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
             backend=producer.backend.name, model=producer.model_name,
             orbit=producer.backend.orbit,
             mode=producer.sim.loco_mode, n_dof=producer.n_dof,
+            cam_mode=producer.backend.camera_mode,
         ))
 
     async def _send_loop(ws: WebSocket) -> None:

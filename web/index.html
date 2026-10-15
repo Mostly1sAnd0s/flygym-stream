@@ -23,12 +23,25 @@
     </span>
   </div>
   <main>
-    <section id="video-pane" title="Drag to orbit, scroll to zoom">
+    <section id="video-pane" title="Drag to orbit, scroll to zoom; the viewcube
+               snaps the orbit to a side of the fly (front = where it faces)">
       <img id="video" alt="live fly simulation" draggable="false"/>
       <video id="video-webrtc" autoplay playsinline muted draggable="false"
              style="display:none"></video>
       <img id="vision" alt="fly vision (eye cameras)" class="hidden"
            draggable="false" title="Fly's own eyes (serve --vision)"/>
+      <div id="viewcube" title="Viewcube: click a face to aim the orbit camera
+           at that side of the fly (front = where it faces; the cube tracks
+           the live camera). Dragging the video switches back to orbit.">
+        <div id="cube" class="cube">
+          <div class="face" id="vc-front" data-view="front">front</div>
+          <div class="face" id="vc-back" data-view="back">back</div>
+          <div class="face" id="vc-left" data-view="left">left</div>
+          <div class="face" id="vc-right" data-view="right">right</div>
+          <div class="face" id="vc-top" data-view="top">top</div>
+          <div class="face" id="vc-bottom" data-view="bottom">bottom</div>
+        </div>
+      </div>
       <div id="video-overlay"></div>
     </section>
     <aside id="controls">
@@ -46,6 +59,18 @@
         <button class="mode-btn" data-mode="walk">walk</button>
         <button class="mode-btn" data-mode="flap">flap</button>
         <button class="mode-btn" data-mode="manual">manual</button>
+      </div>
+      <div id="cam-row" class="row" title="Camera: orbit = free orbit (drag the
+           video, scroll to zoom); 1st = top of the head looking forward;
+           3rd = trailing behind the fly. 1st/3rd follow the fly's motion
+           and heading; dragging the video switches back to orbit.">
+        <span class="cam-label">cam</span>
+        <button class="cam-btn active" id="cam-btn-orbit" data-cam="orbit"
+                title="Free orbit (drag/scroll the video; viewcube aims it)">orbit</button>
+        <button class="cam-btn" id="cam-btn-first" data-cam="first"
+                title="1st person: camera on top of the fly's head, looking forward">1st</button>
+        <button class="cam-btn" id="cam-btn-third" data-cam="third"
+                title="3rd person: camera trailing behind and above the fly">3rd</button>
       </div>
       <div class="row" title="Built-in gait tuning (live; M7.3)">
         <label for="loco-freq">freq</label>
@@ -109,9 +134,11 @@
       </div>
       <div id="sliders" class="sliders"></div>
       <p class="hint">
-        Drag the video to orbit, scroll to zoom. One slider per actuated
-        degree of freedom (count discovered from the server's status).
-        Frames arrive as MJPEG over WebSocket.
+        Drag the video to orbit, scroll to zoom, or click a viewcube face to
+        snap to a side of the fly. Camera row: orbit / 1st (top of the head) /
+        3rd (trailing behind). One slider per actuated degree of freedom
+        (count discovered from the server's status). Frames arrive as MJPEG
+        over WebSocket.
       </p>
     </aside>
   </main>

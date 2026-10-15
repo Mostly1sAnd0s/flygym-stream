@@ -134,7 +134,7 @@ def test_status_encode_round_trip() -> None:
     assert wire == {
         "type": "status", "sim_time": 1.25, "fps": 29.7, "paused": False,
         "n_actuators": 18, "backend": "cpu", "model": "fly", "orbit": None,
-        "mode": None, "n_dof": None,
+        "mode": None, "n_dof": None, "cam_mode": None,
     }
 
 
@@ -263,3 +263,44 @@ def test_log_round_trip() -> None:
 def test_info_round_trip() -> None:
     msg = decode_control('{"type": "info"}')
     assert isinstance(msg, Info)
+
+
+# --- Camera views (viewcube + 1st/3rd person) ---------------------------------
+
+def test_camera_mode_round_trip() -> None:
+    for mode in ("orbit", "first", "third"):
+        msg = decode_control(json.dumps({"type": "camera", "mode": mode}))
+        assert isinstance(msg, proto.Camera)
+        assert (msg.mode, msg.view) == (mode, None)
+
+
+def test_camera_view_round_trip() -> None:
+    for view in ("front", "back", "left", "right", "top", "bottom"):
+        msg = decode_control(json.dumps({"type": "camera", "view": view}))
+        assert isinstance(msg, proto.Camera)
+        assert (msg.mode, msg.view) == (None, view)
+
+
+def test_camera_requires_at_least_one_field() -> None:
+    with pytest.raises(ProtocolError, match="camera"):
+        decode_control('{"type": "camera"}')
+
+
+@pytest.mark.parametrize("payload", [
+    '{"type": "camera", "mode": "side"}',
+    '{"type": "camera", "mode": 3}',
+    '{"type": "camera", "view": "up"}',
+    '{"type": "camera", "view": true}',
+    '{"type": "camera", "mode": "first", "view": "up"}',
+])
+def test_camera_rejected_payloads_raise_protocol_error(payload: str) -> None:
+    with pytest.raises(ProtocolError):
+        decode_control(payload)
+
+
+def test_status_carries_cam_mode() -> None:
+    wire = json.loads(encode_status(Status(
+        sim_time=0.5, fps=30.0, paused=False, n_actuators=4, backend="cpu",
+        model="fly", cam_mode="third",
+    )))
+    assert wire["cam_mode"] == "third"

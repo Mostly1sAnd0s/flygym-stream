@@ -99,6 +99,17 @@ class Loco:  # live locomotion tuning; None fields = unchanged (M7.3)
     freq: float | None = None  # Hz, (0, 50]
     amplitude: float | None = None  # rad, [0, pi]
     phase: float | None = None  # cycles, [0, 1)
+
+# --- Phase 7 (M7.7): camera views (viewcube + 1st/3rd person) -----------------
+CAMERA_MODES = ("orbit", "first", "third")
+#: Viewcube faces, fly-relative: front/back/left/right are azimuth snaps
+#: around the fly's live heading; top/bottom are elevation snaps.
+CAMERA_VIEWS = ("front", "back", "left", "right", "top", "bottom")
+
+@dataclass(frozen=True)
+class Camera:  # camera mode and/or viewcube view (at least one, M7.7)
+    mode: str | None = None  # one of CAMERA_MODES (None = keep)
+    view: str | None = None  # one of CAMERA_VIEWS (viewcube face)
 @dataclass(frozen=True)
 class Log:  # start/stop server-side JSONL logging (M7.4)
     on: int  # 0 or 1
@@ -117,11 +128,12 @@ class Status:  # server -> client periodic status (about 1 Hz)
     orbit: Orbit | None = None  # live orbit state (None = unknown)
     mode: str | None = None  # locomotion mode (M7.3; None = unknown)
     n_dof: int | None = None  # model nq (M7.4; None = unknown)
+    cam_mode: str | None = None  # camera mode (M7.7; None = unknown)
 
 
 InputMessage = (Hello | Orbit | Actuator | ActuatorSet | Neutral | Pause | Resume
                 | Step | Speed | Reset | SetState | Spawn | Force | Param
-                | Keyframe | Adhesion | Mode | Loco | Log | Info)
+                | Keyframe | Adhesion | Mode | Loco | Camera | Log | Info)
 
 _FIELDLESS = {"neutral": Neutral, "pause": Pause, "resume": Resume, "reset": Reset}
 
@@ -132,7 +144,7 @@ WIRE_TYPES = {
     Resume: "resume", Step: "step", Speed: "speed", Reset: "reset",
     SetState: "set_state", Spawn: "spawn", Force: "force", Param: "param",
     Keyframe: "keyframe", Adhesion: "adhesion", Mode: "mode", Loco: "loco",
-    Log: "log", Info: "info",
+    Camera: "camera", Log: "log", Info: "info",
 }
 
 
@@ -296,6 +308,19 @@ def decode_control(payload: bytes | str) -> InputMessage | None:
         if on not in (0, 1) or isinstance(on, bool):
             raise ProtocolError(f"log on must be 0 or 1, got {on!r}")
         return Log(on)
+    if mtype == "camera":
+        mode, view = obj.get("mode"), obj.get("view")
+        if mode is not None and (not isinstance(mode, str)
+                                 or mode not in CAMERA_MODES):
+            raise ProtocolError(
+                f"camera mode must be one of {CAMERA_MODES}, got {mode!r}")
+        if view is not None and (not isinstance(view, str)
+                                 or view not in CAMERA_VIEWS):
+            raise ProtocolError(
+                f"camera view must be one of {CAMERA_VIEWS}, got {view!r}")
+        if mode is None and view is None:
+            raise ProtocolError("camera needs at least one of mode/view")
+        return Camera(mode=mode, view=view)
     if mtype == "info":
         return Info()
     logger.info("ignoring unknown control message type %r", mtype)

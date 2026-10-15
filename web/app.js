@@ -19,6 +19,9 @@ const MSG = {
   hello: (proto) => JSON.stringify({ type: "hello", proto }),
   orbit: (azimuth, elevation, distance) =>
     JSON.stringify({ type: "orbit", azimuth, elevation, distance }),
+  /* M7.7 camera views: mode (orbit|first|third) and/or viewcube view
+     (front|back|left|right|top|bottom); the server requires at least one. */
+  camera: (fields) => JSON.stringify(Object.assign({ type: "camera" }, fields)),
   actuator: (index, value) =>
     JSON.stringify({ type: "actuator", index, value }),
   actuators: (values) => JSON.stringify({ type: "actuators", values }),
@@ -52,7 +55,8 @@ const state = {
   ws: null,
   rtc: null,
   orbit: { azimuth: 30, elevation: -20, distance: 6400 }, // deg/deg/mm
-  orbitTouched: false,
+  camMode: "orbit", // camera mode from status (M7.7: orbit|first|third)
+  heading: 0,       // fly world heading, deg (telemetry; +x faces forward)
   paused: false,
   nActuators: null,
   reconnectDelay: 1000,
@@ -153,9 +157,17 @@ function onText(msg) {
 function onStatus(s) {
   state.paused = s.paused;
   state.nActuators = s.n_actuators;
-  if (s.orbit && !state.orbitTouched) {
-    // adopt the server's true orbit (scale-aware default; a hardcoded JS
-    // default would snap the view back inside the fly on first drag)
+  if (s.cam_mode) {
+    state.camMode = s.cam_mode;
+    for (const [mode, btn] of Object.entries(camBtns)) {
+      btn.classList.toggle("active", mode === s.cam_mode);
+    }
+  }
+  if (s.orbit && !state.dragging) {
+    // The server is the source of truth for the camera: in body-view modes
+    // status carries the effective body camera, so switching modes or
+    // reconnecting never jumps the view (only skipped mid-drag, where the
+    // client's prediction must win).
     state.orbit = { azimuth: s.orbit.azimuth, elevation: s.orbit.elevation,
                     distance: s.orbit.distance };
     updateOrbitHud();
@@ -241,9 +253,11 @@ const videoPane = $("video-pane");  // drag/zoom work over either <img> or <vide
 videoPane.addEventListener("pointerdown", (ev) => {
   ev.preventDefault(); // stop the native <img> drag ghost + text selection
   dragging = true;
-  state.orbitTouched = true;
   dragLast = [ev.clientX, ev.clientY];
   videoPane.setPointerCapture(ev.pointerId);
+  // Manual orbiting means orbit mode: from a body view the server first
+  // captures the current effective camera, so there is no jump.
+  if (state.camMode !== "orbit") send(MSG.camera({ mode: "orbit" }));
 });
 
 videoPane.addEventListener("pointermove", (ev) => {
@@ -265,19 +279,37 @@ videoPane.addEventListener("pointerup", (ev) => {
 
 videoPane.addEventListener("wheel", (ev) => {
   ev.preventDefault();
-  state.orbitTouched = true;
+  if (state.camMode !== "orbit") send(MSG.camera({ mode: "orbit" }));
   state.orbit.distance = clamp(
     state.orbit.distance * (1 + ev.deltaY * 0.001), 5, 50000
   );
   sendOrbitThrottled();
 }, { passive: false });
 
+function wrap180(deg) {
+  return ((deg + 180) % 360 + 360) % 360 - 180;
+}
+
+/* The viewcube is a CSS 3D cube whose faces are the fly-relative camera
+ * directions (M7.7). Rotating it by rotateX(-el) rotateY(az - heading)
+ * brings the face the camera is on to the front (verified face math);
+ * the heading (from telemetry, app_sandbox.js) keeps it fly-relative. */
+function updateViewcube() {
+  const cube = $("cube");
+  if (!cube) return;
+  const azRel = wrap180(state.orbit.azimuth - state.heading);
+  cube.style.transform =
+    `rotateX(${-state.orbit.elevation}deg) rotateY(${azRel}deg)`;
+}
+
 function updateOrbitHud() {
   const d = state.orbit.distance;
   orbitState.textContent =
+    `cam ${state.camMode} \u00b7 ` +
     `az ${Math.round(state.orbit.azimuth)}\u00b0 \u00b7 ` +
     `el ${Math.round(state.orbit.elevation)}\u00b0 \u00b7 ` +
     (d >= 1000 ? `${(d / 1000).toFixed(1)} m` : `${d.toFixed(0)} mm`);
+  updateViewcube();
 }
 
 function sendOrbitThrottled() {
@@ -297,6 +329,33 @@ wire("btn-pause", () => send(MSG.pause()));
 wire("btn-resume", () => send(MSG.resume()));
 wire("btn-step", () => send(MSG.step(Number($("step-n").value))));
 wire("btn-reset", () => send(MSG.reset()));
+
+/* --- camera: mode row + viewcube (M7.7) ------------------------------------ */
+const camBtns = {};
+for (const id of ["cam-btn-orbit", "cam-btn-first", "cam-btn-third"]) {
+  const mode = id.slice("cam-btn-".length);
+  camBtns[mode] = $(id);
+  camBtns[mode].addEventListener("click",
+    () => send(MSG.camera({ mode })));
+}
+for (const id of ["vc-front", "vc-back", "vc-left", "vc-right",
+                  "vc-top", "vc-bottom"]) {
+  const view = id.slice(3);
+  const face = $(id);
+  face.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    send(MSG.camera({ view }));
+  });
+  face.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+  // no orbit drag starts from a viewcube face
+}
+
+/* Hook for app_sandbox.js: telemetry carries the root quat; the fly's world
+ * heading keeps the viewcube fly-relative (M7.7). */
+window.setFlyHeading = (deg) => {
+  state.heading = deg;
+  updateViewcube();
+};
 
 $("speed").addEventListener("input", (ev) => {
   $("speed-val").textContent = `${Number(ev.target.value).toFixed(1)}\u00d7`;

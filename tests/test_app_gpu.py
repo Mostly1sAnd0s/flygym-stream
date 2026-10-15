@@ -348,3 +348,74 @@ def test_gpu_telemetry_model_info_and_status_fields(tmp_config) -> None:
     finally:
         sim.stop()
         renderer.close()
+
+
+@pytest.mark.gpu
+def test_camera_views_change_rendered_pixels(tmp_config) -> None:
+    """M7.7 control -> pixels: 1st-person / 3rd-person / viewcube-front each
+    visibly change the real rendered frame, and status reports the active
+    cam_mode (GL required). The fly rests at the anchored standing pose, so
+    after it settles any big frame change is the camera, not motion."""
+    import numpy as np
+    from PIL import Image
+
+    from flygym_stream.rendering import OffscreenRenderer
+    from flygym_stream.scene import build_default_scene
+    from flygym_stream.simulation import make_backend
+
+    def changed_frac(a: bytes, b: bytes, thresh: int = 12) -> float:
+        with Image.open(io.BytesIO(a)) as ia, Image.open(io.BytesIO(b)) as ib:
+            da, db = np.asarray(ia).astype(int), np.asarray(ib).astype(int)
+        return float((np.abs(da - db).max(axis=2) > thresh).mean())
+
+    def frame_after_change(ws, before: bytes) -> bytes:
+        """The first frame (within ~1 s) that visibly differs from ``before``
+        (the fly is at rest, so only a camera change can do this)."""
+        for _ in range(30):
+            cand = recv_frame(ws)
+            if changed_frac(before, cand) > 0.05:
+                return cand
+        raise AssertionError("no camera-changed frame within 30 frames")
+
+    scene = build_default_scene()
+    backend = make_backend(scene, tmp_config)
+    renderer = OffscreenRenderer(scene, tmp_config)
+    frames, inputs = FrameQueue(), InputQueue()
+    sim = SimThread(backend, renderer, frames, inputs, tmp_config)
+    sim.start()
+    app = create_app(tmp_config, Producer(frames, inputs, backend, sim))
+    try:
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws") as ws:
+                ws.send_text(HELLO)
+                assert recv_status(ws)["cam_mode"] == "orbit"
+                orbit_img = recv_frame(ws)
+                # Let the fly settle onto its feet (rest state), so the
+                # baseline frame is stable.
+                deadline = time.monotonic() + 5.0
+                while (time.monotonic() < deadline
+                       and changed_frac(orbit_img, recv_frame(ws)) > 0.005):
+                    orbit_img = recv_frame(ws)
+                # 1st person: camera on top of the head, looking forward
+                ws.send_text(json.dumps({"type": "camera", "mode": "first"}))
+                wait_for(lambda: scene.camera_mode == "first")
+                first_img = frame_after_change(ws, orbit_img)
+                status = recv_status(ws)
+                assert status["cam_mode"] == "first"
+                # 3rd person: trailing behind and above the fly
+                ws.send_text(json.dumps({"type": "camera", "mode": "third"}))
+                wait_for(lambda: scene.camera_mode == "third")
+                third_img = frame_after_change(ws, first_img)
+                # Viewcube front: orbit camera snaps to the fly's heading
+                ws.send_text(json.dumps({"type": "camera", "view": "front"}))
+                wait_for(lambda: scene.camera_mode == "orbit")
+                assert scene.orbit[0] == pytest.approx(
+                    scene.fly_heading_deg(), abs=1.0)
+                front_img = frame_after_change(ws, third_img)
+                print(f"\ncamera views: orbit vs first "
+                      f"{changed_frac(orbit_img, first_img):.3f}, "
+                      f"first vs third {changed_frac(first_img, third_img):.3f}, "
+                      f"third vs front {changed_frac(third_img, front_img):.3f}")
+    finally:
+        sim.stop()
+        renderer.close()

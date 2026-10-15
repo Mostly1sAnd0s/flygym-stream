@@ -155,6 +155,7 @@ class FakeBackend:
         self.dt = dt
         self.n_actuators = n_actuators
         self.name = "fake"
+        self.camera_mode = "orbit"  # M7.7 (duck-types Backend.camera_mode)
         self._time = 0.0
         self._steps = 0
         self.inputs: list = []

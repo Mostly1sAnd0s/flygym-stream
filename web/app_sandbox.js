@@ -152,6 +152,19 @@ window.Sandbox = (() => {
     }
     refreshVisibleRows(t);
     updateTelemetryStrip(t);
+    // M7.7 viewcube: the fly's world heading (root quat; the fly faces +x
+    // at rest) keeps the cube's faces fly-relative while it walks/turns.
+    if (t.root && t.root.quat && window.setFlyHeading) {
+      window.setFlyHeading(headingFromQuat(t.root.quat));
+    }
+  }
+
+  function headingFromQuat(q) {
+    // World forward = R(q) · (1, 0, 0) with q = (w, x, y, z) (telemetry
+    // root quat); heading = atan2 of the forward's y/x components.
+    const [w, x, y, z] = q;
+    return Math.atan2(2 * (x * y + w * z),
+                      1 - 2 * (y * y + z * z)) * 180 / Math.PI;
   }
 
   function refreshVisibleRows(t) {

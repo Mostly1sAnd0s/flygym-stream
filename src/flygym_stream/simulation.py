@@ -3,9 +3,7 @@
 One stepping interface (Strategy, PLAN.md §2.2): ``Backend`` has a CPU
 (MuJoCo) and a GPU (MJWarp, optional) implementation. ``SimThread`` owns
 the loop: drain inputs -> dispatch -> pace & step -> render-if-due ->
-FrameQueue. Pacing is wall-clock-anchored so sim time advances at
-``playback_speed`` x real time; ``clock``/``sleep`` are injectable for
-exact, race-free tests.
+FrameQueue. Pacing is wall-clock-anchored (sim runs at ``playback_speed`` x real time); ``clock``/``sleep`` are injectable for exact, race-free tests.
 """
 
 import logging
@@ -17,9 +15,9 @@ import mujoco as mj
 
 from flygym_stream.config import Config
 from flygym_stream.protocol import (
-    Adhesion, Actuator, ActuatorSet, Force, Hello, InputMessage, Keyframe,
-    Loco, Mode, Neutral, Orbit, Param, Pause, Reset, Resume, SetState,
-    Spawn, Speed, Step,
+    Adhesion, Actuator, ActuatorSet, Camera, Force, Hello, InputMessage,
+    Keyframe, Loco, Mode, Neutral, Orbit, Param, Pause, Reset, Resume,
+    SetState, Spawn, Speed, Step,
 )
 from flygym_stream.scene import Scene
 from flygym_stream.stream import FrameQueue, InputQueue
@@ -56,6 +54,11 @@ class Backend(ABC):
         return Orbit(azimuth, elevation, distance_mm)
 
     @property
+    def camera_mode(self) -> str:
+        """Active camera mode (M7.7; the Scene is the source of truth)."""
+        return self._scene.camera_mode
+
+    @property
     def data(self):
         """The CPU MjData this backend steps (locomotion/telemetry read)."""
         raise NotImplementedError(f"{type(self).__name__} has no CPU MjData")
@@ -73,11 +76,8 @@ class Backend(ABC):
         """Reset the simulation to its initial state."""
 
     def set_rest_anchor(self, active: bool) -> None:
-        """Enable/disable the rest anchor (Scene-level, CPU path).
-
-        The GPU backend (v1) leaves it inert: its CPU shadow scene is
-        not stepped, so the anchor has nothing to act on there.
-        """
+        """Enable/disable the rest anchor (Scene-level, CPU path; the GPU
+        backend leaves it inert — its CPU shadow scene is not stepped)."""
 
 
 class MuJoCoBackend(Backend):
@@ -116,8 +116,16 @@ class MuJoCoBackend(Backend):
             # reference pose, not just its ctrl.
             self._scene.neutral_restore()
         elif isinstance(msg, Orbit):
+            # A manual orbit means orbit mode (a body view captures its
+            # effective camera first, then the client's values win).
+            self._scene.set_camera_mode("orbit")
             self._scene.set_orbit_camera(azimuth=msg.azimuth, elevation=msg.elevation,
                                          distance_mm=msg.distance)
+        elif isinstance(msg, Camera):  # M7.7 camera views
+            if msg.view is not None:
+                self._scene.set_orbit_view(msg.view)
+            else:
+                self._scene.set_camera_mode(msg.mode)
         else:
             raise TypeError(f"not a simulation input: {type(msg).__name__}")
         self.inputs.append(msg)
@@ -160,9 +168,8 @@ class MJWarpBackend(Backend):
     The GPU stack is imported lazily so the service runs CPU-only by
     default. After every step the GPU state is written back to the CPU
     MjData the (CPU-side) renderer reads. Models compiled with MuJoCo's
-    NoSlip solver are refused: no released mujoco-warp implements that
-    solver, and the default fly scene uses it — use ``--backend cpu``
-    there (PLAN.md Phase 6).
+    NoSlip solver are refused (no released mujoco-warp implements it, and
+    the default fly scene uses it — use ``--backend cpu``, PLAN.md P6).
     """
 
     def __init__(self, scene: Scene) -> None:
@@ -225,9 +232,15 @@ class MJWarpBackend(Backend):
     def apply_input(self, msg: InputMessage) -> None:
         """Route a control message; actuator values go to the GPU ctrl."""
         if isinstance(msg, Orbit):
+            self._scene.set_camera_mode("orbit")
             self._scene.set_orbit_camera(azimuth=msg.azimuth,
                                          elevation=msg.elevation,
                                          distance_mm=msg.distance)
+        elif isinstance(msg, Camera):  # M7.7 camera views
+            if msg.view is not None:
+                self._scene.set_orbit_view(msg.view)
+            else:
+                self._scene.set_camera_mode(msg.mode)
         elif isinstance(msg, Actuator):
             self._scene.set_actuator(msg.index, msg.value)
             self._push_ctrl()
@@ -371,14 +384,10 @@ class SimThread:
         self._push_frame(force=True)
 
     def reset(self) -> None:
-        """Reset model + renderer, then re-anchor pacing.
-
-        A reset rewinds sim time to the keyframe's time (0): the
-        telemetry/vision sim-time pacing state must re-base with it, or
-        it stays (pre-reset sim time) ahead of the clock and the
-        telemetry stream / vision pane go silent until sim time crawls
-        back up (2026-07-21: telemetry was dead after a WS ``reset``).
-        """
+        """Reset model + renderer, then re-anchor pacing. A reset rewinds
+        sim time to 0, so the telemetry/vision sim-time pacing state must
+        re-base with it or the streams stay silent until sim time crawls
+        back up (2026-07-21: telemetry was dead after a WS ``reset``)."""
         self._backend.reset()
         self._renderer.reset()
         self._next_telemetry = 0.0
@@ -427,10 +436,7 @@ class SimThread:
 
     def _maybe_vision(self) -> None:
         """Render the fly-eye frame if due (M7.6): sim-time paced, on the
-        sim thread (the eye renderer's GL context binds to this thread);
-        the V1-prefixed bytes go to the vision queue, which the WS send
-        loop checks every iteration (same starvation rule as telemetry).
-        """
+        sim thread (the eye renderer's GL context binds to it)."""
         feed = self._vision
         if feed is None or self._vision_queue is None:
             return
@@ -445,13 +451,12 @@ class SimThread:
             self._dispatch(msg)
 
     def _dispatch(self, msg: InputMessage) -> None:
-        if isinstance(msg, (Actuator, ActuatorSet, Neutral, Orbit)):
+        if isinstance(msg, (Actuator, ActuatorSet, Neutral, Orbit, Camera)):
             self._backend.apply_input(msg)
         elif isinstance(msg, (SetState, Spawn, Force, Param, Keyframe,
                               Adhesion)):
             # Research-sandbox state writes (M7.2): a rejection must not
-            # kill the sim thread — log and keep stepping (error
-            # telemetry lands in M7.4).
+            # kill the sim thread — log and keep stepping.
             try:
                 self._backend.apply_state(msg)
             except (ValueError, NotImplementedError) as err:
@@ -471,9 +476,8 @@ class SimThread:
                     if isinstance(msg, Mode):
                         self._loco.set_mode(msg.value)
                         # Rest state (M7.3): neutral holds the reference
-                        # pose (rest anchor on); any active mode
-                        # (walk/flap/manual) releases the root to free
-                        # physics.
+                        # pose (rest anchor on); walk/flap/manual release
+                        # the root to free physics.
                         self._backend.set_rest_anchor(msg.value == "neutral")
                         if msg.value == "neutral":
                             # Full neutral state (qpos/qvel/ctrl): the

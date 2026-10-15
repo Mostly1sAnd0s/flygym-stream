@@ -25,6 +25,43 @@ from flygym_stream.stream import FrameQueue, InputQueue
 HELLO = json.dumps({"type": "hello", "proto": 1})
 
 
+def test_ws_status_carries_cam_mode_and_camera_reaches_backend(app_env) -> None:
+    """M7.7: status carries the camera mode and a `camera` control message
+    reaches the backend (the Scene applies it on the sim thread)."""
+    app, sim, backend = app_env
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(HELLO)
+            status = recv_status(ws)
+            assert status["cam_mode"] == "orbit"
+            ws.send_text(json.dumps({"type": "camera", "mode": "third"}))
+            wait_for(lambda: any(
+                type(m).__name__ == "Camera" and m.mode == "third"
+                for m in backend.inputs))
+            ws.send_text(json.dumps({"type": "camera", "view": "front"}))
+            wait_for(lambda: any(
+                type(m).__name__ == "Camera" and m.view == "front"
+                for m in backend.inputs))
+
+
+def test_ws_camera_rejects_bad_mode(app_env) -> None:
+    """A camera message with an unknown mode/view closes with 1008 without
+    killing the server (same policy as every other malformed input)."""
+    app, sim, _ = app_env
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(HELLO)
+            recv_status(ws)
+            ws.send_text(json.dumps({"type": "camera", "mode": "side"}))
+            err = ws.receive()
+            while err["type"] != "websocket.close":
+                err = ws.receive()
+            assert err["code"] == 1008
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(HELLO)
+            assert recv_status(ws)["type"] == "status"  # server still up
+
+
 def wait_for(pred, timeout: float = 5.0) -> None:
     """Poll ``pred`` until true (sim thread applies inputs async)."""
     deadline = time.monotonic() + timeout

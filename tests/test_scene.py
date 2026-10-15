@@ -175,6 +175,176 @@ def test_scene_unknown_target_site_rejected(tiny_mj_model) -> None:
         Scene(m, d, actuator_ids=[0], target_site="nope")
 
 
+# --- Camera views: viewcube + 1st/3rd person (body-frame cameras) -----------
+
+#: Tiny two-body model for camera-view tests: a free root on "Thorax"
+#: (body names mirror the FlyMimic MSK fallback chain) carrying a "Head" at
+#: +x (forward = thorax -> head, matching the real fly: rostrum/eyes lead,
+#: abdomen/wings trail). No keyframe, no actuator; the target site sits at
+#: the thorax.
+CAM_TINY_XML = """<mujoco model="cam_tiny">
+  <option timestep="0.001" gravity="0 0 -9.81"/>
+  <worldbody>
+    <body name="Thorax" pos="0 0 0.3">
+      <freejoint/>
+      <geom type="sphere" size="0.05" rgba="0.9 0.2 0.1 1"/>
+      <body name="Head" pos="0.2 0 0">
+        <geom type="sphere" size="0.1" rgba="0.2 0.9 0.1 1"/>
+      </body>
+    </body>
+    <site name="target" pos="0 0 0.3" size="0.01"/>
+  </worldbody>
+</mujoco>"""
+
+
+def make_cam_tiny_scene() -> Scene:
+    m = mj.MjModel.from_xml_string(CAM_TINY_XML)
+    d = mj.MjData(m)
+    mj.mj_forward(m, d)
+    return Scene(m, d, actuator_ids=[], target_site="target")
+
+
+def cam_pos(cam) -> tuple[float, float, float]:
+    """Reconstruct the free-camera position from its az/el/dist/lookat."""
+    az = math.radians(cam.azimuth)
+    el = math.radians(cam.elevation)
+    look = np.asarray(cam.lookat, dtype=float)
+    off = cam.distance * np.array(
+        [math.cos(el) * math.cos(az), math.cos(el) * math.sin(az),
+         math.sin(el)])
+    return tuple(look + off)
+
+
+def test_camera_defaults_to_orbit_mode() -> None:
+    s = make_cam_tiny_scene()
+    assert s.camera_mode == "orbit"
+
+
+def test_fly_forward_and_heading_follow_the_root() -> None:
+    s = make_cam_tiny_scene()
+    # At the identity root the head leads the thorax along +x.
+    assert np.allclose(s.fly_forward(), [1.0, 0.0, 0.0], atol=1e-6)
+    assert s.fly_heading_deg() == pytest.approx(0.0)
+    # Rotate the root 90 deg about z: forward becomes +y, heading 90.
+    s.mj_data.qpos[3:7] = [math.cos(math.pi / 4), 0.0, 0.0,
+                           math.sin(math.pi / 4)]
+    mj.mj_forward(s.mj_model, s.mj_data)
+    assert np.allclose(s.fly_forward(), [0.0, 1.0, 0.0], atol=1e-6)
+    assert s.fly_heading_deg() == pytest.approx(90.0)
+
+
+def test_viewcube_snaps_orbit_relative_to_the_fly_heading() -> None:
+    s = make_cam_tiny_scene()
+    s.set_orbit_camera(azimuth=30.0, elevation=-20.0, distance_mm=200.0)
+    # At rest the fly faces +x (heading 0): viewcube directions are world.
+    s.set_orbit_view("front")
+    assert s.camera_mode == "orbit"
+    assert s.orbit[0] == pytest.approx(0.0)
+    assert s.orbit[1] == pytest.approx(-20.0)  # view keeps the elevation
+    assert s.orbit[2] == pytest.approx(200.0)  # ... and the distance
+    s.set_orbit_view("back")
+    assert s.orbit[0] == pytest.approx(180.0)
+    s.set_orbit_view("left")
+    assert s.orbit[0] == pytest.approx(90.0)   # camera on the fly's left
+    s.set_orbit_view("right")
+    assert s.orbit[0] == pytest.approx(-90.0)
+    s.set_orbit_view("top")
+    assert s.orbit[0] == pytest.approx(-90.0)  # azimuth kept
+    assert s.orbit[1] == pytest.approx(scene_mod.MAX_ORBIT_ELEVATION_DEG)
+    s.set_orbit_view("bottom")
+    assert s.orbit[1] == pytest.approx(-scene_mod.MAX_ORBIT_ELEVATION_DEG)
+    # Fly-relative: rotate the root 90 deg (heading 90), front now faces +y.
+    s.mj_data.qpos[3:7] = [math.cos(math.pi / 4), 0.0, 0.0,
+                           math.sin(math.pi / 4)]
+    mj.mj_forward(s.mj_model, s.mj_data)
+    s.set_orbit_view("front")
+    assert s.orbit[0] == pytest.approx(90.0)
+
+
+def test_first_person_camera_sits_on_top_of_head_looking_forward() -> None:
+    s = make_cam_tiny_scene()
+    s.set_camera_mode("first")
+    assert s.camera_mode == "first"
+    cam = mj.MjvCamera()
+    s.update_mjv_camera(cam)
+    head = s.mj_data.xpos[mj.mj_name2id(
+        s.mj_model, mj.mjtObj.mjOBJ_BODY, "Head")]
+    pos = cam_pos(cam)
+    look = np.asarray(cam.lookat, dtype=float)
+    # Looking well ahead of the head, along +x (the fly's forward).
+    assert look[0] > head[0] + 0.5 and abs(look[1] - head[1]) < 1e-6
+    # The camera itself is at the top of the head: laterally at the head,
+    # above it by the head geom radius (0.1 in this model).
+    assert abs(pos[0] - head[0]) < 1e-6 and abs(pos[1] - head[1]) < 1e-6
+    assert pos[2] == pytest.approx(head[2] + 0.1, abs=1e-6)
+
+
+def test_first_person_camera_follows_a_moving_fly() -> None:
+    s = make_cam_tiny_scene()
+    s.set_camera_mode("first")
+    cam0 = mj.MjvCamera()
+    s.update_mjv_camera(cam0)
+    s.mj_data.qpos[0:3] += [1.0, 2.0, 0.0]  # teleport the free root
+    mj.mj_forward(s.mj_model, s.mj_data)
+    cam1 = mj.MjvCamera()
+    s.update_mjv_camera(cam1)
+    delta = np.asarray(cam1.lookat) - np.asarray(cam0.lookat)
+    assert np.allclose(delta, [1.0, 2.0, 0.0], atol=1e-6)
+
+
+def test_third_person_camera_trails_behind_and_above() -> None:
+    s = make_cam_tiny_scene()
+    s.set_camera_mode("third")
+    cam = mj.MjvCamera()
+    s.update_mjv_camera(cam)
+    head = s.mj_data.xpos[mj.mj_name2id(
+        s.mj_model, mj.mjtObj.mjOBJ_BODY, "Head")]
+    pos = cam_pos(cam)
+    look = np.asarray(cam.lookat, dtype=float)
+    assert pos[0] < head[0]          # behind the head (fly faces +x)
+    assert pos[2] > head[2]          # ... and above it
+    assert look[0] > head[0]         # looking forward, past the head
+
+
+def test_orbit_mode_captures_the_body_view_on_exit() -> None:
+    """Switching a body view back to orbit adopts the current effective
+    camera as the stored orbit: the view continues without a jump."""
+    s = make_cam_tiny_scene()
+    s.set_camera_mode("first")
+    az, el, dist = s.orbit  # effective body-view camera
+    s.set_camera_mode("orbit")
+    assert s.camera_mode == "orbit"
+    assert s.orbit == (pytest.approx(az), pytest.approx(el),
+                       pytest.approx(dist))
+
+
+def test_set_orbit_view_switches_back_to_orbit_mode() -> None:
+    s = make_cam_tiny_scene()
+    s.set_camera_mode("third")
+    s.set_orbit_view("front")
+    assert s.camera_mode == "orbit"
+
+
+def test_invalid_camera_mode_and_view_rejected() -> None:
+    s = make_cam_tiny_scene()
+    with pytest.raises(ValueError):
+        s.set_camera_mode("side")
+    with pytest.raises(ValueError):
+        s.set_orbit_view("up")
+
+
+def test_orbit_property_tracks_effective_body_view() -> None:
+    """In body-view modes the orbit readout (status source) is the live
+    effective camera, not the stale stored orbit."""
+    s = make_cam_tiny_scene()
+    s.set_orbit_camera(azimuth=30.0, elevation=-20.0, distance_mm=200.0)
+    s.set_camera_mode("third")
+    az, el, dist = s.orbit
+    eff_az, eff_el, eff_dist, _ = s.effective_camera()
+    assert (az, el, dist) == (pytest.approx(eff_az), pytest.approx(eff_el),
+                              pytest.approx(eff_dist * 1000.0))
+
+
 @pytest.fixture(scope="module")
 def fly_scene() -> Scene:
     """The full default fly scene (may fetch S3 meshes on a cold cache)."""
@@ -228,6 +398,37 @@ def test_scene_exposes_current_orbit_state(fly_scene: Scene) -> None:
     server can report it in status and the client never drifts."""
     fly_scene.set_orbit_camera(azimuth=123.0, elevation=5.0, distance_mm=6400.0)
     assert fly_scene.orbit == (123.0, 5.0, pytest.approx(6400.0))
+
+
+@pytest.mark.network
+def test_body_view_cameras_frame_the_real_fly(fly_scene: Scene) -> None:
+    """On the real fly the body-view cameras frame the animal: 1st person
+    sits on top of the head looking forward (+x at rest, rostrum leads);
+    3rd person trails behind and above, looking ahead."""
+    s = fly_scene
+    head = s.mj_data.xpos[mj.mj_name2id(
+        s.mj_model, mj.mjtObj.mjOBJ_BODY, "nmf/c_head")].copy()
+    s.set_camera_mode("first")
+    az, el, dist, look = s.effective_camera()
+    look = np.asarray(look)
+    off = dist * np.array([math.cos(math.radians(el)) * math.cos(math.radians(az)),
+                           math.cos(math.radians(el)) * math.sin(math.radians(az)),
+                           math.sin(math.radians(el))])
+    assert look[0] > head[0] + 0.5            # well ahead of the head
+    pos = look + off
+    assert pos[2] > head[2] + 0.2             # above the head center
+    assert abs(pos[0] - head[0]) < 0.5        # laterally at the head
+    s.set_camera_mode("third")
+    az, el, dist, look = s.effective_camera()
+    look = np.asarray(look)
+    off = dist * np.array([math.cos(math.radians(el)) * math.cos(math.radians(az)),
+                           math.cos(math.radians(el)) * math.sin(math.radians(az)),
+                           math.sin(math.radians(el))])
+    pos = look + off
+    assert pos[0] < head[0] - 0.5             # behind the head (fly faces +x)
+    assert pos[2] > head[2]                   # ... and above
+    assert look[0] > head[0]                  # looking ahead of the head
+    s.set_camera_mode("orbit")  # leave the fixture in a sane view
 
 
 def test_model_is_built_only_in_scene_module() -> None:

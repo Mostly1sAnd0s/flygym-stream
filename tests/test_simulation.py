@@ -1,8 +1,8 @@
 """Tests for flygym_stream.simulation (PLAN.md Phase 4).
 
-Pacing/pause/step/input-order tests drive ``SimThread.tick`` directly with
-a FakeClock (exact, race-free); one test exercises the real thread start/
-stop. MuJoCoBackend tests use the real tiny model (CPU, no GL).
+Pacing/pause/step/input-order tests drive ``SimThread.tick`` with a
+FakeClock (exact, race-free); one test exercises the real thread. M7.7
+camera routing: tests/test_camera.py. MuJoCoBackend tests: real tiny model.
 """
 
 from __future__ import annotations

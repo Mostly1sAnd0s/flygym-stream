@@ -265,3 +265,69 @@ button:active { background: #343a45; }
   color: #8fd18f;
   font-variant-numeric: tabular-nums;
 }
+
+/* --- Camera row (M7.7): orbit / 1st / 3rd person ------------------------- */
+.cam-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7b8494;
+}
+.cam-btn {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
+  background: #1b1f26;
+  border: 1px solid #2a2e35;
+  border-radius: 5px;
+  color: #c7ccd6;
+  cursor: pointer;
+}
+.cam-btn:hover { border-color: #454d59; }
+.cam-btn.active {
+  background: #24344a;
+  border-color: #5aa9e6;
+  color: #d3ecff;
+}
+
+/* --- Viewcube (M7.7): 3D cube, click a face to aim the orbit camera ------- */
+#viewcube {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  width: 84px;
+  height: 84px;
+  perspective: 420px;
+  pointer-events: none; /* only the faces are clickable */
+  opacity: 0.92;
+}
+#viewcube .face { pointer-events: auto; }
+.cube {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.15s linear;
+}
+.cube .face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  color: #d3ecff;
+  background: rgba(20, 28, 40, 0.72);
+  border: 1px solid #5aa9e6;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.cube .face:hover { background: rgba(46, 74, 106, 0.9); }
+/* standard CSS-cube face placement (half = 42px) */
+#vc-front  { transform: rotateY(0deg)    translateZ(42px); }
+#vc-back   { transform: rotateY(180deg)  translateZ(42px); }
+#vc-left   { transform: rotateY(-90deg)  translateZ(42px); }
+#vc-right  { transform: rotateY(90deg)   translateZ(42px); }
+#vc-top    { transform: rotateX(90deg)   translateZ(42px); }
+#vc-bottom { transform: rotateX(-90deg)  translateZ(42px); }

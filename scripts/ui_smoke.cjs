@@ -45,11 +45,16 @@ class El {
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   append(...els) { this.children.push(...els); }
   replaceChildren(...els) { this.children = els; }
-  fire(t, ev) { for (const fn of this.listeners[t] || []) fn(ev || {}); }
+  fire(t, ev) {
+    ev = Object.assign({ preventDefault() {}, stopPropagation() {} }, ev);
+    for (const fn of this.listeners[t] || []) fn(ev);
+  }
   set clientHeight(v) { this._ch = v; }
   get clientHeight() { return this._ch !== undefined ? this._ch : 280; }
   set scrollTop(v) { this._st = v; }
   get scrollTop() { return this._st || 0; }
+  setPointerCapture() {}  // no-ops in the fake DOM
+  releasePointerCapture() {}
 }
 
 const els = new Map();
@@ -127,6 +132,13 @@ function check(cond, what) {
 check(!indexHtml.includes('btn-neutral'),
       "index.html has no duplicate top-row neutral button (mode row is the single neutral)");
 
+/* M7.7 static markup: the 6-face viewcube + the camera mode row. */
+check(["front", "back", "left", "right", "top", "bottom"].every(
+        (v) => indexHtml.includes(`data-view="${v}"`))
+      && indexHtml.includes('id="cam-btn-first"')
+      && indexHtml.includes('id="cube"'),
+      "index.html has the 6-face viewcube + the orbit/1st/3rd camera row");
+
 /* --- load both UI files in one scope, then run the harness ------------------- */
 const harness = `
 const __harness = (async function () {
@@ -153,6 +165,37 @@ const __harness = (async function () {
         (statusErr ? \` (got \${statusErr.message})\` : ""));
   check(els.get("sliders").children.length === 42,
         \`status builds the 42 classic sliders (got \${els.get("sliders").children.length})\`);
+
+  /* --- M7.7 camera: mode row + viewcube ----------------------------------- */
+  check(els.get("cube").style.transform
+        === "rotateX(20deg) rotateY(30deg)",
+        "viewcube tracks the camera (az 30, el -20, heading 0); got "
+        + els.get("cube").style.transform);
+  check(els.get("orbit-state").textContent.indexOf("cam orbit") === 0,
+        "orbit HUD reports the camera mode");
+  els.get("cam-btn-first").fire("click");
+  check(JSON.stringify(__sent.filter((m) => m.type === "camera").pop())
+        === JSON.stringify({ type: "camera", mode: "first" }),
+        "cam 1st button -> camera mode message shape");
+  els.get("vc-back").fire("click");
+  check(JSON.stringify(__sent.filter((m) => m.type === "camera").pop())
+        === JSON.stringify({ type: "camera", view: "back" }),
+        "viewcube back face -> camera view message shape");
+  onStatus({ type: "status", sim_time: 1.1, fps: 30.0, paused: false,
+             n_actuators: 42, backend: "cpu", model: "fly",
+             orbit: { azimuth: 30, elevation: -20, distance: 6400 },
+             mode: "neutral", n_dof: 133, cam_mode: "third" });
+  check(els.get("cam-btn-third").classList.contains("active"),
+        "cam_mode third highlights the 3rd button");
+  check(!els.get("cam-btn-orbit").classList.contains("active"),
+        "orbit button not highlighted in third mode");
+  // Dragging the video in a body view switches back to orbit first.
+  els.get("video-pane").fire("pointerdown",
+    { preventDefault() {}, clientX: 100, clientY: 100, pointerId: 1 });
+  check(JSON.stringify(__sent.filter((m) => m.type === "camera").pop())
+        === JSON.stringify({ type: "camera", mode: "orbit" }),
+        "video drag in a body view sends camera mode orbit first");
+  els.get("video-pane").fire("pointerup", { pointerId: 1 });
 
   /* The sandbox activates through app.js's window.Sandbox gate: a
      top-level const in a classic <script> is NOT a window property. */
@@ -216,6 +259,17 @@ const __harness = (async function () {
   check(row1 && row1._val.textContent === "-0.77",
         "untouched slider resynced from telemetry (got " +
         (row1 && row1._val.textContent) + ")");
+
+  /* M7.7: the fly's world heading (root quat) re-aims the viewcube */
+  window.Sandbox.onTelemetry({
+    t: 0.3, qpos, qvel: [0, 0, 0], ctrl: new Array(N).fill(0.123),
+    root: { pos: [1, 2, 0.5],
+            quat: [Math.SQRT1_2, 0, 0, Math.SQRT1_2] },  // yaw +90 deg
+    contact: {}, paused: false, mode: "neutral",
+  });
+  check(els.get("cube").style.transform.indexOf("rotateY(-60deg)") !== -1,
+        "heading +90 re-aims the viewcube (az 30 - 90 = -60); got " +
+        els.get("cube").style.transform);
 
   /* mode button -> mode message */
   const walkBtn = document.querySelectorAll(".mode-btn")
