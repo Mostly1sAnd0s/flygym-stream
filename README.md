@@ -131,8 +131,8 @@ JSON protocol (protocol version still 1; all Phase 7 messages are additive):
 
 Verified per milestone (M7.1–M7.6, incl. `--vision`): green suite + live
 serve smokes (commit messages `a185829`, `af27734`, `1493b9a`, `eab746b`,
-`4fa78cc`, `e8dbe48`, plus the M7.6 vision milestone — every commit
-message is a verification record).
+`4fa78cc`, `e8dbe48`, `226f674` — every commit message is a verification
+record).
 
 ### Web UI
 

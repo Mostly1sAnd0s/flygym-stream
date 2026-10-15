@@ -519,7 +519,7 @@ protocol/app/gpu suites +≤ 100 each.
     `scene` camera; telemetry root falls back to body `Thorax`; CLI
     skips the leg-locomotion engine. Also fixed telemetry starvation
     (send loop checks the telemetry queue every iteration).
-  - ✅ Vision (`--vision`):
+  - ✅ Vision (`--vision`): `226f674`.
     Vision scenes build through `flygym.Simulation(world)` (it compiles
     the world itself and exposes `mj_model`/`mj_data`; the Scene steps
     the SAME MjData the eye renderer reads); model cameras are
