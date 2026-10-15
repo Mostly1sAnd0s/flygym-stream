@@ -99,6 +99,12 @@ class Loco:  # live locomotion tuning; None fields = unchanged (M7.3)
     freq: float | None = None  # Hz, (0, 50]
     amplitude: float | None = None  # rad, [0, pi]
     phase: float | None = None  # cycles, [0, 1)
+@dataclass(frozen=True)
+class Log:  # start/stop server-side JSONL logging (M7.4)
+    on: int  # 0 or 1
+@dataclass(frozen=True)
+class Info:  # request a model-info resend (M7.4)
+    pass
 
 @dataclass(frozen=True)
 class Status:  # server -> client periodic status (about 1 Hz)
@@ -109,13 +115,30 @@ class Status:  # server -> client periodic status (about 1 Hz)
     backend: str
     model: str
     orbit: Orbit | None = None  # live orbit state (None = unknown)
+    mode: str | None = None  # locomotion mode (M7.3; None = unknown)
+    n_dof: int | None = None  # model nq (M7.4; None = unknown)
 
 
 InputMessage = (Hello | Orbit | Actuator | ActuatorSet | Neutral | Pause | Resume
                 | Step | Speed | Reset | SetState | Spawn | Force | Param
-                | Keyframe | Adhesion | Mode | Loco)
+                | Keyframe | Adhesion | Mode | Loco | Log | Info)
 
 _FIELDLESS = {"neutral": Neutral, "pause": Pause, "resume": Resume, "reset": Reset}
+
+#: Wire type name for each control message class (M7.4 JSONL logging).
+WIRE_TYPES = {
+    Hello: "hello", Orbit: "orbit", Actuator: "actuator",
+    ActuatorSet: "actuators", Neutral: "neutral", Pause: "pause",
+    Resume: "resume", Step: "step", Speed: "speed", Reset: "reset",
+    SetState: "set_state", Spawn: "spawn", Force: "force", Param: "param",
+    Keyframe: "keyframe", Adhesion: "adhesion", Mode: "mode", Loco: "loco",
+    Log: "log", Info: "info",
+}
+
+
+def message_type(obj: object) -> str:
+    """The wire `type` name of a decoded control message (M7.4)."""
+    return WIRE_TYPES[type(obj)]
 
 def _num(value: object, what: str) -> float:
     # Validate a finite JSON number (not bool) and return it as float.
@@ -268,6 +291,13 @@ def decode_control(payload: bytes | str) -> InputMessage | None:
             raise ProtocolError(
                 "loco needs at least one of freq/amplitude/phase")
         return Loco(freq=freq, amplitude=amplitude, phase=phase)
+    if mtype == "log":
+        on = _field(obj, "on")
+        if on not in (0, 1) or isinstance(on, bool):
+            raise ProtocolError(f"log on must be 0 or 1, got {on!r}")
+        return Log(on)
+    if mtype == "info":
+        return Info()
     logger.info("ignoring unknown control message type %r", mtype)
     return None
 
@@ -292,3 +322,17 @@ def encode_status(status: Status) -> str:
     obj = asdict(status)
     obj["type"] = "status"
     return json.dumps(obj)
+
+
+def encode_telemetry(obj: dict) -> str:
+    """Encode a telemetry payload (M7.4) for the server -> client channel."""
+    out = dict(obj)
+    out["type"] = "telemetry"
+    return json.dumps(out)
+
+
+def encode_model_info(info: dict) -> str:
+    """Encode a model-info payload (M7.4) for the server -> client channel."""
+    out = dict(info)
+    out["type"] = "model-info"
+    return json.dumps(out)

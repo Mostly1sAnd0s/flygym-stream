@@ -251,3 +251,83 @@ def test_gpu_mode_walk_moves_root_more_than_50mm_in_2sim_s(tmp_config) -> None:
     finally:
         sim.stop()
         renderer.close()
+
+
+@pytest.mark.gpu
+def test_gpu_telemetry_model_info_and_status_fields(tmp_config) -> None:
+    """M7.4 full stack: hello -> status (mode/n_dof) + model-info;
+    telemetry messages stream at the configured rate with real MjData
+    values (GL required)."""
+    from flygym_stream.locomotion import LocController
+    from flygym_stream.rendering import OffscreenRenderer
+    from flygym_stream.scene import build_default_scene
+    from flygym_stream.simulation import make_backend
+    from flygym_stream.telemetry import (
+        TelemetryGatherer, TelemetryQueue, TelemetrySink, gather_model_info,
+    )
+
+    scene = build_default_scene()
+    backend = make_backend(scene, tmp_config)
+    renderer = OffscreenRenderer(scene, tmp_config)
+    frames, inputs = FrameQueue(), InputQueue()
+    loco = LocController(scene.mj_model, scene.neutral_actuators())
+    model_info = gather_model_info(scene.mj_model, fly_name=scene.fly_name,
+                                   world="flat")
+    assert model_info["nq"] == 133 and model_info["nu"] == 42
+    tqueue = TelemetryQueue()
+    sink = TelemetrySink(
+        gatherer=TelemetryGatherer(scene.mj_model, scene.mj_data,
+                                   model_info=model_info),
+        queue=tqueue, hz=20.0)
+    sim = SimThread(backend, renderer, frames, inputs, tmp_config, loco=loco,
+                    telemetry=sink)
+    sim.start()
+    app = create_app(tmp_config, Producer(frames, inputs, backend, sim,
+                                          telemetry_queue=tqueue,
+                                          n_dof=scene.mj_model.nq,
+                                          model_info=model_info))
+    d = scene.mj_data
+    try:
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws") as ws:
+                ws.send_text(HELLO)
+                status = recv_status(ws)
+                assert status["n_dof"] == 133
+                assert status["mode"] == "neutral"
+                # model-info follows the initial status (binary frames and
+                # telemetry may interleave)
+                info = None
+                deadline = time.monotonic() + 5.0
+                while info is None and time.monotonic() < deadline:
+                    msg = ws.receive()
+                    if msg.get("text"):
+                        data = json.loads(msg["text"])
+                        if data.get("type") == "model-info":
+                            info = data
+                assert info is not None, "no model-info after hello"
+                assert info["units"] == "mm" and info["nq"] == 133
+                assert len(info["joints"]) == 127  # 126 hinges + free root
+                assert len(info["actuators"]) == 42
+                assert len(info["sensors"]) == 6
+                assert "neutral" in info["keyframes"]
+                # telemetry: real MjData at 20 Hz
+                tel = None
+                deadline = time.monotonic() + 5.0
+                while tel is None and time.monotonic() < deadline:
+                    msg = ws.receive()
+                    if msg.get("text"):
+                        data = json.loads(msg["text"])
+                        if data.get("type") == "telemetry":
+                            tel = data
+                assert tel is not None, "no telemetry within 5 s"
+                assert len(tel["qpos"]) == 133 and len(tel["qvel"]) == 132
+                assert len(tel["ctrl"]) == 42
+                assert set(tel["contact"]) == {"lf", "lm", "lh",
+                                               "rf", "rm", "rh"}
+                assert tel["paused"] is False and tel["mode"] == "neutral"
+                # matches the live MjData root (free root: qpos[0:3])
+                assert tel["root"]["pos"] == pytest.approx(
+                    list(d.qpos[0:3]), abs=1e-3)
+    finally:
+        sim.stop()
+        renderer.close()

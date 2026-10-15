@@ -280,7 +280,8 @@ class SimThread:
 
     def __init__(self, backend: Backend, renderer: object, frames: FrameQueue,
                  inputs: InputQueue, config: Config, *, clock=time.monotonic,
-                 sleep=time.sleep, loco: object | None = None) -> None:
+                 sleep=time.sleep, loco: object | None = None,
+                 telemetry: object | None = None) -> None:
         self._backend = backend
         self._renderer = renderer
         self._frames = frames
@@ -292,6 +293,8 @@ class SimThread:
         self._stop_evt = threading.Event()
         self._thread: threading.Thread | None = None
         self._loco = loco  # M7.3 pattern engine (None = no built-in gait)
+        self._telemetry = telemetry  # M7.4 TelemetrySink (None = off)
+        self._next_telemetry = 0.0
         self._rebase()
 
     def start(self) -> None:
@@ -316,6 +319,11 @@ class SimThread:
     @property
     def paused(self) -> bool:
         return self._paused
+
+    @property
+    def loco_mode(self) -> str:
+        """Active locomotion mode (M7.3); 'neutral' with no engine."""
+        return self._loco.mode if self._loco is not None else "neutral"
 
     def pause(self) -> None:
         """Freeze the sim loop (PLAN.md §3 ``pause``)."""
@@ -366,12 +374,28 @@ class SimThread:
         for _ in range(min(max(due, 0), MAX_CATCHUP_STEPS)):
             self._loco_apply()
             self._backend.step(self._backend.dt)
+        self._maybe_telemetry()
         self._push_frame()
 
     def _loco_apply(self) -> None:
         """Apply the active locomotion pattern before a substep (M7.3)."""
         if self._loco is not None:
             self._loco.apply(self._backend.data)
+
+    def _maybe_telemetry(self) -> None:
+        """Rate-limit + publish a telemetry snapshot (M7.4, running only:
+        while paused the state is static and the 1 Hz status covers it)."""
+        sink = self._telemetry
+        if sink is None or sink.hz <= 0.0:
+            return
+        t = self._backend.time
+        if t < self._next_telemetry:
+            return
+        interval = 1.0 / sink.hz
+        # Whole-interval catch-up: no burst after a slow tick.
+        self._next_telemetry = (int(t // interval) + 1) * interval
+        sink.queue.put(sink.gatherer.gather(
+            paused=False, mode=self.loco_mode))
 
     def _rebase(self) -> None:
         self._t0_wall, self._t0_sim = self._clock(), self._backend.time

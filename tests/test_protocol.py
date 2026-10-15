@@ -18,8 +18,10 @@ from flygym_stream.protocol import (
     ActuatorSet,
     Force,
     Hello,
+    Info,
     Keyframe,
     Loco,
+    Log,
     Mode,
     Orbit,
     Param,
@@ -132,6 +134,7 @@ def test_status_encode_round_trip() -> None:
     assert wire == {
         "type": "status", "sim_time": 1.25, "fps": 29.7, "paused": False,
         "n_actuators": 18, "backend": "cpu", "model": "fly", "orbit": None,
+        "mode": None, "n_dof": None,
     }
 
 
@@ -244,3 +247,19 @@ def test_loco_round_trip() -> None:
         decode_control('{"type": "loco", "amplitude": 4.0}')
     with pytest.raises(ProtocolError):
         decode_control('{"type": "loco", "phase": 1.5}')
+
+
+# --- Phase 7 (M7.4): logging + model-info requests ---------------------------
+
+def test_log_round_trip() -> None:
+    msg = decode_control('{"type": "log", "on": 1}')
+    assert isinstance(msg, Log) and msg.on == 1
+    msg = decode_control('{"type": "log", "on": 0}')
+    assert msg.on == 0
+    with pytest.raises(ProtocolError, match="log"):
+        decode_control('{"type": "log", "on": 2}')
+
+
+def test_info_round_trip() -> None:
+    msg = decode_control('{"type": "info"}')
+    assert isinstance(msg, Info)

@@ -70,3 +70,11 @@ def test_transport_choices() -> None:
     assert Config(transport="webrtc").transport == "webrtc"
     with pytest.raises(ValueError):
         Config(transport="rtsp")
+
+
+def test_telemetry_hz_validation() -> None:
+    from flygym_stream.config import Config
+    assert Config(telemetry_hz=0.0).telemetry_hz == 0.0
+    assert Config(telemetry_hz=25).telemetry_hz == 25
+    with pytest.raises(ValueError, match="telemetry_hz"):
+        Config(telemetry_hz=-1)

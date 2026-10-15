@@ -14,20 +14,22 @@ import asyncio
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from anyio.to_thread import run_sync
 from fastapi import FastAPI, WebSocket
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from flygym_stream.config import Config
 from flygym_stream.protocol import (
-    Hello, ProtocolError, Status, decode_control, encode_status,
+    Hello, Info, Log, ProtocolError, Status, decode_control,
+    encode_model_info, encode_status, encode_telemetry, message_type,
 )
 from flygym_stream.simulation import Backend, SimThread
 from flygym_stream.stream import FrameQueue, InputQueue
+from flygym_stream.telemetry import JsonlLogger
 from flygym_stream.webrtc import WebRtcSession
 
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
@@ -46,6 +48,10 @@ class Producer:
         backend: stepping backend (status: time/name/n_actuators).
         sim: SimThread (status: paused; control dispatch).
         model_name: model field of the status message.
+        telemetry_queue: latest-wins telemetry queue (M7.4; None = off).
+        n_dof: model nq for status/model-info (M7.4; None = unknown).
+        model_info: static model description (M7.4; None = omit).
+        log_dir: JSONL log directory (M7.4).
     """
 
     frames: FrameQueue
@@ -53,6 +59,10 @@ class Producer:
     backend: Backend
     sim: SimThread
     model_name: str = "fly"
+    telemetry_queue: object | None = None
+    n_dof: int | None = None
+    model_info: dict | None = None
+    log_dir: str = "logs"
 
 
 def create_app(config: Config, producer: Producer) -> FastAPI:
@@ -60,6 +70,26 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
     app = FastAPI(title="flygym-stream")
     active: list[WebSocket] = []          # single-client slot
     fps_box: list[float] = [0.0]          # measured frame rate (send loop)
+    logger_box: list[JsonlLogger | None] = [None]  # M7.4 JSONL logging
+    app.state.log_dir = producer.log_dir
+
+    def _logger() -> JsonlLogger | None:
+        return logger_box[0]
+
+    def _log(obj: dict) -> None:
+        """Write a log line if logging is on (never raises)."""
+        logger = _logger()
+        if logger is not None:
+            logger.write(obj)
+
+    def _log_path() -> Path | None:
+        """The latest JSONL log file in log_dir (or None)."""
+        directory = Path(producer.log_dir)
+        if not directory.is_dir():
+            return None
+        files = sorted(directory.glob("*.jsonl"),
+                       key=lambda p: p.stat().st_mtime)
+        return files[-1] if files else None
 
     @app.get("/")
     def index() -> FileResponse:
@@ -78,14 +108,26 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
             n_actuators=producer.backend.n_actuators,
             backend=producer.backend.name, model=producer.model_name,
             orbit=producer.backend.orbit,
+            mode=producer.sim.loco_mode, n_dof=producer.n_dof,
         ))
 
     async def _send_loop(ws: WebSocket) -> None:
-        """Pop frames (threaded, non-blocking server) and send binary."""
+        """Pop frames (threaded, non-blocking server) and send binary;
+        multiplex latest-wins telemetry text (M7.4) between frames."""
         last = None
         while True:
             frame = await run_sync(producer.frames.get, FRAME_POLL_S)
             if frame is None:
+                telemetry = producer.telemetry_queue
+                if telemetry is not None:
+                    item = await run_sync(telemetry.get_nowait)
+                    if item is not None:
+                        try:
+                            await ws.send_text(encode_telemetry(item))
+                        except Exception:
+                            log.exception("telemetry send failed")
+                            return
+                        _log(item)
                 continue
             now = time.monotonic()
             if last is not None and now > last:
@@ -123,7 +165,28 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
                 await ws.close(err.close_code, str(err)[:120])
                 return
             if decoded is not None:
-                producer.inputs.put(decoded)
+                if isinstance(decoded, Log):
+                    _toggle_logging(decoded.on)
+                elif isinstance(decoded, Info) and producer.model_info:
+                    await ws.send_text(encode_model_info(producer.model_info))
+                else:
+                    producer.inputs.put(decoded)
+                    if not isinstance(decoded, (Hello,)):
+                        _log({"ts": time.time(), "event": "control",
+                              "msg": {"type": message_type(decoded),
+                                      **asdict(decoded)}})
+
+    def _toggle_logging(on: int) -> None:
+        """Start/stop JSONL logging (M7.4); the file is created on start."""
+        if on and logger_box[0] is None:
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            logger_box[0] = JsonlLogger(
+                Path(producer.log_dir) / f"flygym-stream-{stamp}.jsonl")
+            logger_box[0].write({"ts": time.time(), "event": "log_start"})
+        elif not on and logger_box[0] is not None:
+            logger_box[0].write({"ts": time.time(), "event": "log_stop"})
+            logger_box[0].close()
+            logger_box[0] = None
 
     async def _webrtc_handshake(ws: WebSocket) -> "WebRtcSession | None":
         """App-layer signaling: webrtc-start in; offer/answer out (server
@@ -162,6 +225,15 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
             return None
         return session
 
+    @app.get("/log")
+    def get_log():
+        """Serve the latest JSONL log (M7.4); 404 until the first log."""
+        path = _log_path()
+        if path is None:
+            return JSONResponse({"error": "no logs yet (send {'type':'log','on':1})"},
+                                status_code=404)
+        return FileResponse(path)
+
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
         await websocket.accept()
@@ -185,6 +257,9 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
                 await websocket.close(1008, "hello expected as first message")
                 return
             await websocket.send_text(_status(fps_box[0]))
+            if producer.model_info is not None:
+                await websocket.send_text(
+                    encode_model_info(producer.model_info))
             sender: asyncio.Task | None = None
             if config.transport == "webrtc":
                 session = await _webrtc_handshake(websocket)

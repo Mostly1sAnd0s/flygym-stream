@@ -99,6 +99,9 @@ def serve(args: argparse.Namespace) -> None:
     from flygym_stream.rendering import OffscreenRenderer
     from flygym_stream.simulation import SimThread, make_backend
     from flygym_stream.stream import FrameQueue, InputQueue
+    from flygym_stream.telemetry import (
+        TelemetryGatherer, TelemetryQueue, TelemetrySink, gather_model_info,
+    )
 
     if args.bind == "0.0.0.0" and not args.insecure:
         sys.exit("refusing to bind 0.0.0.0 without --insecure (PLAN.md §6)")
@@ -106,7 +109,8 @@ def serve(args: argparse.Namespace) -> None:
     config = Config(bind=args.bind, port=args.port, width=args.width,
                     height=args.height, output_fps=args.fps,
                     backend=args.backend, playback_speed=args.speed,
-                    overlay=args.overlay, transport=args.transport)
+                    overlay=args.overlay, transport=args.transport,
+                    telemetry_hz=args.telemetry_hz)
     from flygym_stream.scenes import build_scene
     scene = build_scene(scene_config_from_args(args))
     backend = make_backend(scene, config)
@@ -114,9 +118,19 @@ def serve(args: argparse.Namespace) -> None:
     frames, inputs = FrameQueue(), InputQueue()
     loco = LocController(scene.mj_model, scene.neutral_actuators(),
                          fly_name=scene.fly_name)
-    sim = SimThread(backend, renderer, frames, inputs, config, loco=loco)
+    model_info = gather_model_info(scene.mj_model, fly_name=scene.fly_name,
+                                   world=args.world)
+    telemetry = TelemetrySink(
+        gatherer=TelemetryGatherer(scene.mj_model, scene.mj_data,
+                                   model_info=model_info),
+        queue=TelemetryQueue(), hz=config.telemetry_hz)
+    sim = SimThread(backend, renderer, frames, inputs, config, loco=loco,
+                    telemetry=telemetry)
     sim.start()
-    app = create_app(config, Producer(frames, inputs, backend, sim))
+    app = create_app(config, Producer(frames, inputs, backend, sim,
+                                      telemetry_queue=telemetry.queue,
+                                      n_dof=scene.mj_model.nq,
+                                      model_info=model_info))
     print(f"flygym-stream serving on http://{config.bind}:{config.port}")
     try:
         uvicorn.run(app, host=config.bind, port=config.port, log_level="warning")
@@ -189,6 +203,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="add leg adhesion actuators (6 extra)")
     sv.add_argument("--musculoskeletal", action="store_true",
                     help="muscle/tendon model (M7.6; rejected until then)")
+    sv.add_argument("--telemetry-hz", type=float, default=10.0,
+                    help="telemetry message rate in Hz (0 = off; M7.4)")
     sv.add_argument("--insecure", action="store_true",
                     help="allow binding 0.0.0.0 (PLAN.md §6)")
     sv.set_defaults(func=serve)

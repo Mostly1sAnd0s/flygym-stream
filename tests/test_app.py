@@ -244,3 +244,60 @@ def test_ws_bad_param_name_closes_1008(app_env) -> None:
                 {"type": "param", "name": "nuclear", "value": 1.0}))
             exc = recv_close(ws)
             assert exc.code == 1008
+
+
+# --- Phase 7 (M7.4): logging + status.mode -----------------------------------
+
+def test_ws_status_has_mode_and_info_is_tolerated(app_env) -> None:
+    """status carries the locomotion mode; an `info` request on a
+    producer without model-info is a no-op that must not break the
+    connection."""
+    app, sim, backend = app_env
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(HELLO)
+            status = recv_status(ws)
+            assert status["mode"] == "neutral"  # no pattern engine on fakes
+            ws.send_text(json.dumps({"type": "info"}))
+            frame = recv_frame(ws)  # still streaming
+            assert frame.startswith(b"JPEG-")
+
+
+@pytest.fixture
+def log_app_env(tmp_config, fake_backend, fake_renderer, tmp_path):
+    """app_env with the JSONL log dir pointed at tmp_path."""
+    frames, inputs = FrameQueue(), InputQueue()
+    sim = SimThread(fake_backend, fake_renderer, frames, inputs, tmp_config)
+    sim.start()
+    app = create_app(tmp_config, Producer(frames, inputs, fake_backend, sim,
+                                          log_dir=str(tmp_path)))
+    yield app, sim, fake_backend
+    sim.stop()
+
+
+def test_log_on_off_and_get_log(log_app_env, tmp_path) -> None:
+    """`log on` -> control events are JSONL-logged -> `log off` ->
+    GET /log serves the latest log file."""
+    import json as _json
+    from pathlib import Path
+
+    app, sim, backend = log_app_env
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(HELLO)
+            recv_status(ws)
+            ws.send_text(json.dumps({"type": "log", "on": 1}))
+            ws.send_text(json.dumps(
+                {"type": "orbit", "azimuth": 12.0, "elevation": -3.0,
+                 "distance": 50.0}))
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline and not any(
+                    p.suffix == ".jsonl" for p in Path(tmp_path).iterdir()):
+                time.sleep(0.01)
+            ws.send_text(json.dumps({"type": "log", "on": 0}))
+        resp = client.get("/log")
+        assert resp.status_code == 200
+        lines = [json.loads(l) for l in resp.text.splitlines() if l.strip()]
+        orbits = [l for l in lines if l.get("msg", {}).get("type") == "orbit"]
+        assert orbits, lines
+        assert orbits[0]["msg"]["azimuth"] == 12.0

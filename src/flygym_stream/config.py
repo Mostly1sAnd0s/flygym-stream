@@ -43,6 +43,8 @@ class Config:
             PLAN.md Phase 6 stretch).
         transport: "mjpeg" (binary JPEG frames on the WS) or "webrtc"
             (PLAN.md Phase 6 stretch; needs the 'webrtc' extra).
+        telemetry_hz: Telemetry message rate in Hz (0 = off; Phase 7
+            M7.4).
     """
 
     width: int = 1280
@@ -56,6 +58,7 @@ class Config:
     scene: str = "fly_flat_ground"
     overlay: str = "none"
     transport: str = "mjpeg"
+    telemetry_hz: float = 10.0
 
     def __post_init__(self) -> None:
         _validate(self)
@@ -99,6 +102,9 @@ def _validate(cfg: Config) -> None:
         raise ValueError(f"scene must be one of {SCENES}, got {cfg.scene!r}")
     if cfg.overlay not in OVERLAYS:
         raise ValueError(f"overlay must be one of {OVERLAYS}, got {cfg.overlay!r}")
+    if not (0 <= cfg.telemetry_hz <= 1000.0):
+        raise ValueError(
+            f"telemetry_hz must be in [0, 1000], got {cfg.telemetry_hz}")
     if cfg.transport not in TRANSPORTS:
         raise ValueError(
             f"transport must be one of {TRANSPORTS}, got {cfg.transport!r}")
