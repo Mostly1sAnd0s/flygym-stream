@@ -471,7 +471,27 @@ protocol/app/gpu suites +≤ 100 each.
     agnostic so it cannot 1008 at decode); `param` whitelist v1 =
     {gravity 3, timestep, margin, solref 2, solimp 5, friction 3} →
     MjOpt `o_*` fields (bindings prefix `o_`).
-- M7.3 Locomotion (neutral/walk/flap/mode + `loco` tuning).
+- ~~M7.3 Locomotion (neutral/walk/flap/mode + `loco` tuning).~~ ✅
+  - Impl notes: pattern = offsets from a **baseline captured on mode entry**
+    (not the neutral keyframe) — walking tracks whatever pose the user
+    set; `neutral` mode restores the neutral keyframe ctrl; `manual` =
+    no-op (slider authority). flap = **in-phase** wing pitch (Drosophila
+    wings couple; the "antiphase" plan wording was a plan bug).
+  - Verified gait facts (default scene, 2026-10-15):
+    - The fly faces **−x** (head x < thorax x by ~20 mm).
+    - The `neutral` keyframe pose is **prone**: at rest the body
+      (c_thorax/c_abdomen4 geoms) lies on the ground, legs folded; the
+      fly falls from the 0.8 m spawn and is at rest within ~0.3 sim s.
+    - A statically stable **standing pose** exists (grid search):
+      ctrl offsets coxa-pitch +0.4, femur-pitch +1.4, tibia-pitch −0.4
+      (all legs) → root at ~1.52 m, no body contact, stable at rest.
+    - The v1 open-loop tripod gait does **not** walk quasi-statically:
+      from prone it produces a righting kick (~300 mm, the headline
+      test's >50 mm in 2 sim s passes with huge margin); from the
+      standing pose it collapses (even at amplitude 0.1 rad / 1.5 Hz).
+      Building a real gait (stance control, foot lift, contact
+      feedback) is an open research task — exactly what the sandbox
+      (set_state + per-DOF ctrl + telemetry + force) is for.
 - M7.4 Telemetry + model-info + JSONL logging + `GET /log`.
 - M7.5 UI sandbox (DOF table, mode row, perturbation panel, telemetry
   strip; default UI unchanged).

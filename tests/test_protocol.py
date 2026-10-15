@@ -19,6 +19,8 @@ from flygym_stream.protocol import (
     Force,
     Hello,
     Keyframe,
+    Loco,
+    Mode,
     Orbit,
     Param,
     Pause,
@@ -212,3 +214,33 @@ def test_adhesion_round_trip() -> None:
         decode_control('{"type": "adhesion", "leg": "lf", "state": 2}')
     with pytest.raises(ProtocolError):
         decode_control('{"type": "adhesion", "leg": "wing", "state": 1}')
+
+
+# --- Phase 7 (M7.3): locomotion mode + tuning --------------------------------
+
+def test_mode_round_trip() -> None:
+    for value in ("neutral", "walk", "flap", "manual"):
+        msg = decode_control(json.dumps({"type": "mode", "value": value}))
+        assert isinstance(msg, Mode) and msg.value == value
+    with pytest.raises(ProtocolError, match="mode"):
+        decode_control('{"type": "mode", "value": "fly"}')
+
+
+def test_loco_round_trip() -> None:
+    msg = decode_control(json.dumps(
+        {"type": "loco", "freq": 3.0, "amplitude": 0.5, "phase": 0.25}))
+    assert isinstance(msg, Loco)
+    assert (msg.freq, msg.amplitude, msg.phase) == (3.0, 0.5, 0.25)
+    # partial: any subset (at least one)
+    msg = decode_control('{"type": "loco", "freq": 1.5}')
+    assert msg.freq == 1.5 and msg.amplitude is None and msg.phase is None
+    with pytest.raises(ProtocolError, match="loco"):
+        decode_control('{"type": "loco"}')
+    with pytest.raises(ProtocolError):
+        decode_control('{"type": "loco", "freq": 0}')
+    with pytest.raises(ProtocolError):
+        decode_control('{"type": "loco", "freq": 100}')
+    with pytest.raises(ProtocolError):
+        decode_control('{"type": "loco", "amplitude": 4.0}')
+    with pytest.raises(ProtocolError):
+        decode_control('{"type": "loco", "phase": 1.5}')

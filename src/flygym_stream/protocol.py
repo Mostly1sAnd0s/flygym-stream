@@ -63,6 +63,7 @@ class Speed:  # playback speed multiplier (sim time per wall second)
 PARAM_WHITELIST = {"gravity": 3, "timestep": 0, "margin": 0, "solref": 2,
                    "solimp": 5, "friction": 3}
 ADHESION_LEGS = ("lf", "lm", "lh", "rf", "rm", "rh")  # = add_leg_adhesion order
+MODES = ("neutral", "walk", "flap", "manual")  # M7.3 locomotion modes
 
 @dataclass(frozen=True)
 class SetState:  # state write; any of qpos/qvel/ctrl (full-length arrays)
@@ -90,6 +91,14 @@ class Keyframe:  # apply a named keyframe
 class Adhesion:  # stick/release one leg (adhesion builds only)
     leg: str
     state: int  # 0 or 1
+@dataclass(frozen=True)
+class Mode:  # locomotion pattern mode (M7.3)
+    value: str  # one of MODES
+@dataclass(frozen=True)
+class Loco:  # live locomotion tuning; None fields = unchanged (M7.3)
+    freq: float | None = None  # Hz, (0, 50]
+    amplitude: float | None = None  # rad, [0, pi]
+    phase: float | None = None  # cycles, [0, 1)
 
 @dataclass(frozen=True)
 class Status:  # server -> client periodic status (about 1 Hz)
@@ -104,7 +113,7 @@ class Status:  # server -> client periodic status (about 1 Hz)
 
 InputMessage = (Hello | Orbit | Actuator | ActuatorSet | Neutral | Pause | Resume
                 | Step | Speed | Reset | SetState | Spawn | Force | Param
-                | Keyframe | Adhesion)
+                | Keyframe | Adhesion | Mode | Loco)
 
 _FIELDLESS = {"neutral": Neutral, "pause": Pause, "resume": Resume, "reset": Reset}
 
@@ -246,8 +255,36 @@ def decode_control(payload: bytes | str) -> InputMessage | None:
         if state not in (0, 1) or isinstance(state, bool):
             raise ProtocolError(f"state must be 0 or 1, got {state!r}")
         return Adhesion(leg, state)
+    if mtype == "mode":
+        value = _field(obj, "value")
+        if not isinstance(value, str) or value not in MODES:
+            raise ProtocolError(f"mode must be one of {MODES}, got {value!r}")
+        return Mode(value)
+    if mtype == "loco":
+        freq = _loco_num(obj, "freq", lo=0.0, hi=50.0, lo_open=True)
+        amplitude = _loco_num(obj, "amplitude", lo=0.0, hi=math.pi)
+        phase = _loco_num(obj, "phase", lo=0.0, hi=1.0, hi_open=True)
+        if freq is None and amplitude is None and phase is None:
+            raise ProtocolError(
+                "loco needs at least one of freq/amplitude/phase")
+        return Loco(freq=freq, amplitude=amplitude, phase=phase)
     logger.info("ignoring unknown control message type %r", mtype)
     return None
+
+
+def _loco_num(payload: dict, key: str, lo: float, hi: float,
+              lo_open: bool = False, hi_open: bool = False) -> float | None:
+    """Optional bounded scalar (M7.3 loco tuning)."""
+    if key not in payload:
+        return None
+    value = _num(payload[key], key)
+    if (value <= lo) if lo_open else (value < lo):
+        raise ProtocolError(f"{key} must be {'>' if lo_open else '>='} {lo}, "
+                            f"got {value}")
+    if (value >= hi) if hi_open else (value > hi):
+        raise ProtocolError(f"{key} must be {'<' if hi_open else '<='} {hi}, "
+                            f"got {value}")
+    return value
 
 
 def encode_status(status: Status) -> str:

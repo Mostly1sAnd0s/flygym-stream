@@ -18,7 +18,8 @@ import mujoco as mj
 from flygym_stream.config import Config
 from flygym_stream.protocol import (
     Adhesion, Actuator, ActuatorSet, Force, Hello, InputMessage, Keyframe,
-    Neutral, Orbit, Param, Pause, Reset, Resume, SetState, Spawn, Speed, Step,
+    Loco, Mode, Neutral, Orbit, Param, Pause, Reset, Resume, SetState,
+    Spawn, Speed, Step,
 )
 from flygym_stream.scene import Scene
 from flygym_stream.stream import FrameQueue, InputQueue
@@ -54,6 +55,11 @@ class Backend(ABC):
         azimuth, elevation, distance_mm = self._scene.orbit
         return Orbit(azimuth, elevation, distance_mm)
 
+    @property
+    def data(self):
+        """The CPU MjData this backend steps (locomotion/telemetry read)."""
+        raise NotImplementedError(f"{type(self).__name__} has no CPU MjData")
+
     @abstractmethod
     def step(self, dt: float) -> None:
         """Advance one substep of ``dt`` seconds."""
@@ -80,6 +86,10 @@ class MuJoCoBackend(Backend):
     @property
     def time(self) -> float:
         return self._scene.mj_data.time
+
+    @property
+    def data(self):
+        return self._scene.mj_data
 
     def step(self, dt: float) -> None:
         """Advance one substep; ``dt`` must equal the model timestep."""
@@ -177,6 +187,12 @@ class MJWarpBackend(Backend):
         """Current simulation time in seconds (GPU -> host)."""
         return float(self._d.time.numpy()[0])
 
+    @property
+    def data(self):
+        """The CPU mirror MjData (locomotion writes its ctrl here; the
+        ctrl push to the GPU uses this same array)."""
+        return self._scene.mj_data
+
     def step(self, dt: float) -> None:
         """Advance one model timestep on the GPU, then mirror to CPU."""
         if abs(dt - self.dt) > 1e-12:
@@ -264,7 +280,7 @@ class SimThread:
 
     def __init__(self, backend: Backend, renderer: object, frames: FrameQueue,
                  inputs: InputQueue, config: Config, *, clock=time.monotonic,
-                 sleep=time.sleep) -> None:
+                 sleep=time.sleep, loco: object | None = None) -> None:
         self._backend = backend
         self._renderer = renderer
         self._frames = frames
@@ -275,6 +291,7 @@ class SimThread:
         self._paused = False
         self._stop_evt = threading.Event()
         self._thread: threading.Thread | None = None
+        self._loco = loco  # M7.3 pattern engine (None = no built-in gait)
         self._rebase()
 
     def start(self) -> None:
@@ -324,6 +341,7 @@ class SimThread:
             raise ValueError(f"n must be >= 1, got {n}")
         self._drain_inputs()
         for _ in range(n):
+            self._loco_apply()
             self._backend.step(self._backend.dt)
         self._push_frame(force=True)
 
@@ -346,8 +364,14 @@ class SimThread:
         target = self._t0_sim + (self._clock() - self._t0_wall) * self._speed
         due = int(round((target - self._backend.time) / self._backend.dt))
         for _ in range(min(max(due, 0), MAX_CATCHUP_STEPS)):
+            self._loco_apply()
             self._backend.step(self._backend.dt)
         self._push_frame()
+
+    def _loco_apply(self) -> None:
+        """Apply the active locomotion pattern before a substep (M7.3)."""
+        if self._loco is not None:
+            self._loco.apply(self._backend.data)
 
     def _rebase(self) -> None:
         self._t0_wall, self._t0_sim = self._clock(), self._backend.time
@@ -372,6 +396,21 @@ class SimThread:
             {Pause: self.pause, Resume: self.resume, Reset: self.reset}[type(msg)]()
         elif isinstance(msg, Speed):
             self.set_speed(msg.value)
+        elif isinstance(msg, (Mode, Loco)):
+            # Locomotion mode/tuning (M7.3): rejections must not kill the
+            # sim thread — log and keep stepping.
+            if self._loco is None:
+                log.warning("locomotion message ignored (no pattern "
+                            "engine on this sim)")
+            else:
+                try:
+                    if isinstance(msg, Mode):
+                        self._loco.set_mode(msg.value)
+                    else:
+                        self._loco.set_params(msg.freq, msg.amplitude,
+                                              msg.phase)
+                except ValueError as err:
+                    log.warning("locomotion message rejected: %s", err)
         elif isinstance(msg, Step) and self._paused:
             self.step(msg.n)
         # Hello: handshake is the app layer's job (PLAN.md §3).

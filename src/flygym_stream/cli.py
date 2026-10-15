@@ -87,15 +87,16 @@ def scene_config_from_args(args: argparse.Namespace) -> object:
 def serve(args: argparse.Namespace) -> None:
     """Run the MJPEG-over-WebSocket streaming service (Phase 5 DoD).
 
-    Builds the default scene, starts the sim thread, and serves until
-    Ctrl-C; the sim thread and renderer are torn down on exit.
+    Builds the configured scene (Phase 7: --dof/--world/...), starts the
+    sim thread (with the built-in locomotion engine, M7.3), and serves
+    until Ctrl-C; the sim thread and renderer are torn down on exit.
     """
     import uvicorn
 
     from flygym_stream.app import Producer, create_app
     from flygym_stream.config import Config
+    from flygym_stream.locomotion import LocController
     from flygym_stream.rendering import OffscreenRenderer
-    from flygym_stream.scene import build_default_scene
     from flygym_stream.simulation import SimThread, make_backend
     from flygym_stream.stream import FrameQueue, InputQueue
 
@@ -111,7 +112,9 @@ def serve(args: argparse.Namespace) -> None:
     backend = make_backend(scene, config)
     renderer = OffscreenRenderer(scene, config)
     frames, inputs = FrameQueue(), InputQueue()
-    sim = SimThread(backend, renderer, frames, inputs, config)
+    loco = LocController(scene.mj_model, scene.neutral_actuators(),
+                         fly_name=scene.fly_name)
+    sim = SimThread(backend, renderer, frames, inputs, config, loco=loco)
     sim.start()
     app = create_app(config, Producer(frames, inputs, backend, sim))
     print(f"flygym-stream serving on http://{config.bind}:{config.port}")

@@ -135,3 +135,42 @@ def _dof(name: str):
 def _atype(name: str):
     from flygym.compose import ActuatorType
     return ActuatorType[name.upper()]
+
+
+@pytest.mark.network
+def test_loco_baseline_captured_on_mode_entry() -> None:
+    """M7.3: the pattern adds offsets to the ctrl *as captured when walk
+    mode started* — not to the neutral keyframe. So a standing pose set
+    via set_state/sliders is the gait's baseline (and the neutral keyframe
+    pose of this model is prone, so neutral-basing would collapse the
+    legs)."""
+    import mujoco as mj
+    import numpy as np
+    from flygym_stream.locomotion import LocController
+    from flygym_stream.scenes import SceneConfig, build_scene
+
+    scene = build_scene(SceneConfig())
+    m, d = scene.mj_model, scene.mj_data
+    loco = LocController(m, scene.neutral_actuators())
+    # a non-neutral "standing-ish" baseline (offsets from the verified
+    # standing-pose grid search, PLAN.md M7.3 notes)
+    def act(name: str) -> int:
+        return mj.mj_name2id(m, mj.mjtObj.mjOBJ_ACTUATOR, name)
+    base = scene.neutral_actuators()
+    for leg in ("lf", "lm", "lh", "rf", "rm", "rh"):
+        d.ctrl[act(f"nmf/{leg}_coxa-{leg}_trochanterfemur-pitch-position")] = \
+            base[act(f"nmf/{leg}_coxa-{leg}_trochanterfemur-pitch-position")] + 1.4
+    loco.set_mode("walk")
+    d.time = 0.25  # quarter cycle at 1 Hz: lf (tripod A) femur at +peak
+    loco.set_params(freq=1.0, amplitude=0.5, phase=0.0)
+    loco.apply(d)
+    fem_lf = act("nmf/lf_coxa-lf_trochanterfemur-pitch-position")
+    fem_rf = act("nmf/rf_coxa-rf_trochanterfemur-pitch-position")
+    # baseline(1.4) + pattern: lf at +peak -> +0.5; rf at -peak -> -0.5
+    assert d.ctrl[fem_lf] == pytest.approx(base[fem_lf] + 1.4 + 0.5, abs=1e-9)
+    assert d.ctrl[fem_rf] == pytest.approx(base[fem_rf] + 1.4 - 0.5, abs=1e-9)
+    # manual mode leaves ctrl untouched
+    d.ctrl[fem_lf] = 0.123
+    loco.set_mode("manual")
+    loco.apply(d)
+    assert d.ctrl[fem_lf] == 0.123

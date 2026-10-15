@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -189,6 +190,64 @@ def test_gpu_state_messages_change_real_physics(tmp_config) -> None:
                     {"type": "keyframe", "name": "neutral"}))
                 applied(Keyframe)
                 assert abs(d.qpos[2] - 0.8) < 1e-3  # spawn height restored
+    finally:
+        sim.stop()
+        renderer.close()
+
+
+@pytest.mark.gpu
+def test_gpu_mode_walk_moves_root_more_than_50mm_in_2sim_s(tmp_config) -> None:
+    """M7.3 headline test: `mode walk` over the WS drives the built-in
+    tripod gait and the fly's free root translates > 50 mm within
+    2 sim seconds (GL required)."""
+    from flygym_stream.locomotion import LocController
+    from flygym_stream.rendering import OffscreenRenderer
+    from flygym_stream.scene import build_default_scene
+    from flygym_stream.simulation import make_backend
+
+    scene = build_default_scene()
+    backend = make_backend(scene, tmp_config)
+    renderer = OffscreenRenderer(scene, tmp_config)
+    frames, inputs = FrameQueue(), InputQueue()
+    loco = LocController(scene.mj_model, scene.neutral_actuators())
+    sim = SimThread(backend, renderer, frames, inputs, tmp_config, loco=loco)
+    sim.start()
+    app = create_app(tmp_config, Producer(frames, inputs, backend, sim))
+    d = scene.mj_data
+    try:
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws") as ws:
+                ws.send_text(HELLO)
+                recv_status(ws)
+                # The fly spawns 0.8 m up: let it land and settle first
+                # (observed: at rest within ~0.3 sim s) so the walk window
+                # measures gait propulsion, not fall/bounce transients.
+                def at_rest() -> bool:
+                    v = d.qvel[0:3]
+                    return float(max(abs(v[0]), abs(v[1]), abs(v[2]))) < 0.02
+                deadline = time.monotonic() + 15.0
+                while not at_rest() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                assert at_rest(), "fly did not settle before walking"
+                x0, z0 = d.qpos[0], d.qpos[2]
+                ws.send_text(json.dumps({"type": "mode", "value": "walk"}))
+                wait_for(lambda: loco.mode == "walk", timeout=5.0)
+                t0 = d.time
+                moved = False
+                deadline = time.monotonic() + 15.0  # 2 sim s + margin
+                while time.monotonic() < deadline:
+                    if d.time - t0 >= 2.0:
+                        break
+                    if abs(d.qpos[0] - x0) > 0.05:
+                        moved = True
+                        break
+                    time.sleep(0.02)
+                dx, dz = d.qpos[0] - x0, d.qpos[2] - z0
+                sim_s = d.time - t0
+                print(f"\nwalk: dx={dx*1000:.1f} mm dz={dz*1000:.1f} mm "
+                      f"in {sim_s:.2f} sim s (from rest)")
+                assert moved, (f"root moved {dx*1000:.1f} mm x, "
+                               f"{dz*1000:.1f} mm z in {sim_s:.2f} sim s")
     finally:
         sim.stop()
         renderer.close()

@@ -144,6 +144,11 @@ class Scene:
         self._distance_m = max(float(distance_mm) / 1000.0, MIN_ORBIT_DISTANCE_M)
 
     @property
+    def fly_name(self) -> str:
+        """The fly body name (actuator/camera/site name prefix)."""
+        return self._target_site_name
+
+    @property
     def orbit(self) -> tuple[float, float, float]:
         """Current orbit state: (azimuth_deg, elevation_deg, distance_mm)."""
         return self._azimuth, self._elevation, self._distance_m * 1000.0
