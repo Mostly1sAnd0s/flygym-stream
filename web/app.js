@@ -28,6 +28,16 @@ const MSG = {
   step: (n) => JSON.stringify({ type: "step", n }),
   speed: (value) => JSON.stringify({ type: "speed", value }),
   reset: () => JSON.stringify({ type: "reset" }),
+  /* Phase 7 research-sandbox controls (M7.3/M7.4): */
+  mode: (value) => JSON.stringify({ type: "mode", value }),
+  loco: (fields) => JSON.stringify(Object.assign({ type: "loco" }, fields)),
+  spawn: (pos) => JSON.stringify(
+    { type: "spawn", pos, quat: [1.0, 0.0, 0.0, 0.0] }),
+  force: (body, force, duration) => JSON.stringify(
+    { type: "force", body, force, duration }),
+  param: (name, value) => JSON.stringify({ type: "param", name, value }),
+  log: (on) => JSON.stringify({ type: "log", on }),
+  info: () => JSON.stringify({ type: "info" }),
   /* app-layer WebRTC signaling (not part of protocol.py) */
   webrtc_start: () => JSON.stringify({ type: "webrtc-start" }),
   webrtc_answer: (sdp) => JSON.stringify({ type: "webrtc-answer", sdp }),
@@ -130,6 +140,10 @@ function onText(msg) {
     setHud(`error: ${msg.message}`, "err");
   } else if (msg.type === "webrtc-offer") {
     onWebrtcOffer(msg.sdp);
+  } else if (msg.type === "model-info" && window.Sandbox) {
+    window.Sandbox.init(msg);  // M7.5: sandbox UI activates
+  } else if (msg.type === "telemetry" && window.Sandbox) {
+    window.Sandbox.onTelemetry(msg);
   }
   // unknown types: ignore (server keeps going)
 }
@@ -149,6 +163,7 @@ function onStatus(s) {
       `${s.backend}  \u00b7  ${s.model}  ${s.paused ? "\u00b7  PAUSED" : ""}`
   );
   ensureSliders(s.n_actuators);
+  if (window.Sandbox) window.Sandbox.onStatus(s);  // M7.5 mode highlight
 }
 
 function onFrame(blob) {

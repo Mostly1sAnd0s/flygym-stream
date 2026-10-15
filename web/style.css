@@ -141,3 +141,112 @@ button:active { background: #343a45; }
 .hint { color: #6b7480; font-size: 0.75rem; margin-top: auto; }
 
 #orbit-state { color: #9aa4b0; font-size: 0.8rem; }
+
+/* --- Phase 7 sandbox (M7.5) ------------------------------------------------ */
+
+.hidden { display: none !important; }
+
+#telemetry {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.25rem 1rem;
+  border-bottom: 1px solid #2a2e35;
+  color: #9fd0ff;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  background: #181b20;
+  min-height: 1.5rem;
+}
+
+.leds { display: inline-flex; gap: 0.3rem; align-items: center; }
+
+.led {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: #333a44;
+  border: 1px solid #454d59;
+}
+
+.led.on { background: #59d97e; border-color: #59d97e; }
+
+.mode-btn { font-size: 0.8rem; padding: 0.25rem 0.6rem; }
+
+.mode-btn.active {
+  background: #2f4a3a;
+  border-color: #59d97e;
+  color: #c8f5d4;
+}
+
+#perturb {
+  border: 1px solid #2a2e35;
+  border-radius: 6px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  background: #191c21;
+}
+
+#perturb .row input[type="number"] { width: 64px; }
+
+#btn-log.active {
+  background: #4a3a2f;
+  border-color: #e0b34c;
+  color: #ffe1a6;
+}
+
+/* Virtualized DOF table: the viewport scrolls, #dof-content is the full
+   logical height, and only the visible window of .dofrow elements exists
+   in the DOM (PLAN.md M7.5: never > ~40 rows). */
+.dof { min-height: 0; }
+
+#dof-viewport {
+  height: 280px;
+  overflow-y: auto;
+  border: 1px solid #2a2e35;
+  border-radius: 6px;
+  background: #191c21;
+}
+
+#dof-content { position: relative; width: 100%; }
+
+.dofrow {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+}
+
+.dofrow:nth-child(odd) { background: #1e2126; }
+
+.dofname {
+  min-width: 150px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9aa4b0;
+}
+
+.dofrow input[type="range"] { flex: 1; min-width: 0; }
+
+.dofval {
+  min-width: 44px;
+  text-align: right;
+  color: #9fd0ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.doqpos {
+  min-width: 48px;
+  text-align: right;
+  color: #8fd18f;
+  font-variant-numeric: tabular-nums;
+}

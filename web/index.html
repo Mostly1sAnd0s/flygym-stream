@@ -11,6 +11,17 @@
     <h1>FlyGym Stream</h1>
     <div id="hud" class="hud">connecting&hellip;</div>
   </header>
+  <div id="telemetry" class="tele hidden">
+    <span id="tele-z">z &mdash;</span>
+    <span id="tele-v">|v| &mdash;</span>
+    <span id="tele-mode">mode &mdash;</span>
+    <span class="leds" title="per-leg ground contact (from the 6 built-in
+          contact sensors)">
+      <span class="led" id="led-lf"></span><span class="led" id="led-lm"></span>
+      <span class="led" id="led-lh"></span><span class="led" id="led-rf"></span>
+      <span class="led" id="led-rm"></span><span class="led" id="led-rh"></span>
+    </span>
+  </div>
   <main>
     <section id="video-pane" title="Drag to orbit, scroll to zoom">
       <img id="video" alt="live fly simulation" draggable="false"/>
@@ -25,6 +36,59 @@
         <button id="btn-resume" title="Unfreeze the simulation">resume</button>
         <button id="btn-step" title="Advance 30 substeps (while paused)">step</button>
         <button id="btn-reset" title="Reset model to the initial keyframe">reset</button>
+        <button id="btn-log" title="Start JSONL logging (telemetry + control
+                events); the latest file is served at /log">log</button>
+      </div>
+      <div id="mode-row" class="row">
+        <button class="mode-btn active" data-mode="neutral">neutral</button>
+        <button class="mode-btn" data-mode="walk">walk</button>
+        <button class="mode-btn" data-mode="flap">flap</button>
+        <button class="mode-btn" data-mode="manual">manual</button>
+      </div>
+      <div class="row" title="Built-in gait tuning (live; M7.3)">
+        <label for="loco-freq">freq</label>
+        <input id="loco-freq" type="range" min="0.2" max="10" step="0.1"
+               value="2"/>
+        <span id="loco-freq-val">2.00</span>
+        <label for="loco-amp">amp</label>
+        <input id="loco-amp" type="range" min="0" max="3.14" step="0.01"
+               value="0.35"/>
+        <span id="loco-amp-val">0.35</span>
+      </div>
+      <div class="row" title="Built-in gait tuning (live; M7.3)">
+        <label for="loco-phase">phase</label>
+        <input id="loco-phase" type="range" min="0" max="0.99" step="0.01"
+               value="0"/>
+        <span id="loco-phase-val">0.00</span>
+      </div>
+      <div id="perturb" class="perturb">
+        <div class="row" title="Teleport the free root (model units, mm);
+             no-op on tethered worlds">
+          <label for="spawn-x">spawn</label>
+          <input id="spawn-x" type="number" step="50" value="0" title="x (mm)"/>
+          <input id="spawn-y" type="number" step="50" value="0" title="y (mm)"/>
+          <input id="spawn-z" type="number" step="50" value="800"
+                 title="z (mm)"/>
+          <button id="btn-spawn">go</button>
+        </div>
+        <div class="row" title="Gravity z (model units, mm/s^2)">
+          <label for="grav-z">g&thinsp;z</label>
+          <input id="grav-z" type="range" min="-20000" max="0" step="10"
+                 value="-9810"/>
+          <span id="grav-z-val">&minus;9810</span>
+        </div>
+        <div class="row" title="Impulse force on the thorax for 0.1 s
+             (model force units)">
+          <label for="force-mag">pulse</label>
+          <input id="force-mag" type="number" step="100" value="5000"/>
+          <button id="btn-force-up">+z</button>
+          <button id="btn-force-dn">&minus;z</button>
+        </div>
+        <div class="row" title="Integrator timestep (s)">
+          <label for="timestep">dt</label>
+          <input id="timestep" type="number" step="0.0001" value="0.0001"/>
+          <button id="btn-timestep">set</button>
+        </div>
       </div>
       <div class="row">
         <label for="speed">speed</label>
@@ -36,6 +100,11 @@
         <input id="step-n" type="number" min="1" max="100000" value="30"/>
       </div>
       <div id="orbit-state" class="row">az &mdash; &middot; el &mdash; &middot; &mdash;</div>
+      <div id="dof-table" class="dof hidden" title="Actuator table (large
+           DOF builds): scroll for virtualized rows; the qpos column is live
+           from telemetry">
+        <div id="dof-viewport"><div id="dof-content"></div></div>
+      </div>
       <div id="sliders" class="sliders"></div>
       <p class="hint">
         Drag the video to orbit, scroll to zoom. One slider per actuated
@@ -45,5 +114,6 @@
     </aside>
   </main>
   <script src="/app.js"></script>
+  <script src="/app_sandbox.js"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pathlib
 
-EXTENSIONS = {".py", ".js", ".html", ".css", ".toml"}
+EXTENSIONS = {".py", ".js", ".cjs", ".html", ".css", ".toml"}
 SKIP_DIRS = {".venv", ".git", "__pycache__", "node_modules"}
 MAX_LINES = 500  # hard ceiling; files must stay strictly below this
 
