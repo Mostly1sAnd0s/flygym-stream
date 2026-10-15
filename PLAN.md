@@ -480,53 +480,43 @@ protocol/app/gpu suites +≤ 100 each.
   - Verified gait facts (default scene, 2026-10-15):
     - The fly faces **−x** (head x < thorax x by ~20 mm).
     - The `neutral` keyframe stores an **upright** pose (root quat
-      identity, z=2.1 m); the **prone** appearance the service shows is
-      the spawn overwrite — the fly falls from 0.8 m and rests on the
-      ground with legs folded, slowly creep-rotating (NoSlip). The body
-      (c_thorax/c_abdomen4 geoms) is in contact at rest.
-    - Standing pose (grid search): ctrl offsets coxa-pitch +0.4,
-      femur-pitch +1.4, tibia-pitch −0.4 (all legs) → root ~1.52 m, no
-      body contact, "stable at rest" in the ORIGINAL measurement.
-      **CONCLUDED 2026-07-21: NOT reproducible — no passive standing
-      pose holds in this model.** Full-size evidence chain (corrected
-      probe recipe: foot-geom-only standing height from the 30 tarsus
-      geoms, initialized-standing start, COM x centered on the stance,
-      5 cm clearance drop, ≥10 s settle):
-      * The keyframe is dorsal-up (wing geoms z 2.229 > thorax 2.085,
-        identity quat) — the "prone" default is the belly-down landing
-        from the 0.8 m spawn; a 180°-about-x "supine" spawn settles
-        quieter (|v_root| ~0.04 vs ~0.23 m/s) but is the truly
-        upside-down pose (wings on the ground).
-      * Documented offsets: from the 0.8 m spawn the fly never stands
-        (NoSlip pins it; `neutral+OFF` settles at root 0.52 m, flailing;
-        `zero+OFF` fully pinned, |qvel|=0).
-      * Initialized-standing (feet on ground at the correct 2.23 m root
-        height, COM centered on the stance): tumbles — root drifts 2.7 m,
-        body rolls 58° head-down onto the ground; the stance's feet all
-        sit head-side (−x) of the root so the COM is behind the support
-        polygon before centering, and the unactuated coxa-yaw/roll DOFs
-        give zero roll stiffness (laterally neutral — no restoring
-        force).
-      * Actuating ALL 48 leg DOFs (`LEGS_ONLY`, 66 actuators) changes
-        nothing: same 0.5273 m endpoint, worse flailing. A pinned-root
-        static test shows the pitch joints still drift off target
-        (error ∝ femur offset after 3 s).
-      * Model mass is 0.001 kg total (biological scale) — actuator force
-        limits (±30) are not the constraint; the stance geometry is.
-      * The default rest still creep-rotates (|v_root| 0.1–0.33 m/s at
-        10 s; does not decay).
-      Next step (research, not service work): a closed-loop righting/
-      stance controller (contact-sensor feedback on the 6 leg contact
-      sensors + per-DOF ctrl) that keeps the COM over the stance; the
-      sandbox (set_state + per-DOF ctrl + telemetry + force) is the
-      toolset. A quasi-static gait builds on the same controller.
+      identity, z=2.1 m, feet 0.84 m above the ground, no contacts).
+      Default rest state (2026-07-21, user bug fix): the scene NO LONGER
+      overwrites the root with a 0.8 m spawn (`SceneConfig.spawn` default
+      is None) — the fly starts dorsal-up at the keyframe, dips ~1 m in
+      ~0.5 sim s, and **stands on its six feet** (root z 1.081 m, all 6
+      tarsus5 geoms in ground contact, ncon≥5).
+    - Standing pose (2026-07-21, CORRECTED conclusion): the earlier
+      "no passive standing pose holds" conclusion was based on the WRONG
+      pose — manually extended joint offsets whose feet all sit head-side
+      (COM behind the support polygon). The model's OWN neutral-ctrl pose
+      is a self-stable stance: COM x=−0.20 is INSIDE the support polygon
+      (feet x −1.53…+1.38), z/x/y constant to the millimetre over 10 s,
+      dorsal up (wing z − thorax z = +0.215), position oscillation
+      0.01–0.2 mm p-p. Its one flaw: a ~1 Hz **yaw limit cycle** (w_y
+      ±0.19 rad/s) — the leg actuators' reaction torque pumps the 1 g
+      root (zero passive yaw stiffness) — which is the "slowly
+      rotating" creep users saw. Fixed by the **rest anchor**: the
+      Scene zeroes the root's angular velocity (`qvel[3:6]`) every
+      substep while active (yaw drift ≤0.01° over 10 s; position held by
+      the foot contacts; appendages stay fully dynamic). Anchor is on by
+      default and in `neutral` mode; released by `spawn`/`set_state`
+      (explicit state writes take over the physics) and by any
+      non-neutral locomotion mode (walk/flap/manual = free physics).
+      `mode neutral` / the `neutral` message do a full state restore
+      (`Scene.neutral_restore`: qpos/qvel/ctrl + anchor on, sim clock
+      untouched) — the UI's neutral button returns the fly to its
+      standing reference pose. A force-based "hover" (xfrc_applied
+      gravity compensation) was tried first and rejected: the 42
+      position actuators (±30 force vs 0.01 N weight) fling the 1 g
+      thorax regardless of the gravity term (MuJoCo 3.x note: applied
+      spatial forces act in the WORLD frame, empirically verified).
     - The v1 open-loop tripod gait does **not** walk quasi-statically:
-      from prone it produces a righting kick (~300 mm, the headline
-      test's >50 mm in 2 sim s passes with huge margin); from the
-      standing pose it collapses (even at amplitude 0.1 rad / 1.5 Hz).
-      Building a real gait (stance control, foot lift, contact
-      feedback) is an open research task — exactly what the sandbox
-      (set_state + per-DOF ctrl + telemetry + force) is for.
+      from the standing rest state it translates ~0.5 m in 2 sim s
+      (right-side-up; the headline test's >50 mm in 2 sim s passes with
+      huge margin); gait QUALITY (even footfall, no stumbling) is the
+      open research task — exactly what the sandbox (set_state +
+      per-DOF ctrl + telemetry + force) is for.
 - ~~M7.4 Telemetry + model-info + JSONL logging + `GET /log`.~~ ✅ `eab746b`
   - Impl notes: telemetry runs only while unpaused (1 Hz status covers
     paused); root = qpos[0:7] when free-root else the `nmf/c_thorax`

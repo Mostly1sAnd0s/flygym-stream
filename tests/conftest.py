@@ -40,10 +40,46 @@ TINY_XML = """<mujoco model="tiny">
 </mujoco>"""
 
 
+#: Free-root tiny model: a heavy free root (box on a freejoint) with one
+#: actuated child hinge — the actuator's reaction torque spins the root
+#: (rest-anchor tests). No keyframe (named keyframes are created
+#: programmatically by flygym, not via MJCF); neutral_restore() falls
+#: back to the plain default state for this model.
+FREE_TINY_XML = """<mujoco model="free_tiny">
+  <option timestep="0.001" gravity="0 0 -9.81"/>
+  <worldbody>
+    <light pos="0 0 2" dir="0 0 -1"/>
+    <geom type="plane" size="1 1 0.1" rgba="0.8 0.8 0.8 1"/>
+    <body name="root" pos="0 0 0.3">
+      <freejoint/>
+      <geom type="box" size="0.05 0.05 0.05" mass="0.5" rgba="0.9 0.2 0.1 1"/>
+      <site name="target" size="0.01"/>
+      <body name="pend" pos="0 0.2 0">
+        <joint name="hinge" type="hinge" axis="0 1 0"/>
+        <geom type="box" size="0.03 0.03 0.03" rgba="0.2 0.9 0.1 1"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position joint="hinge" ctrlrange="-3.14 3.14" kp="5"
+              forcelimited="true" forcerange="-1 1"/>
+  </actuator>
+</mujoco>"""
+
+
 @pytest.fixture
 def tiny_mj_model() -> tuple[mj.MjModel, mj.MjData]:
     """A compiled tiny MuJoCo model plus a fresh data container."""
     m = mj.MjModel.from_xml_string(TINY_XML)
+    d = mj.MjData(m)
+    mj.mj_forward(m, d)
+    return m, d
+
+
+@pytest.fixture
+def free_tiny_mj_model() -> tuple[mj.MjModel, mj.MjData]:
+    """The free-root tiny model (freejoint + actuated child hinge)."""
+    m = mj.MjModel.from_xml_string(FREE_TINY_XML)
     d = mj.MjData(m)
     mj.mj_forward(m, d)
     return m, d
@@ -170,6 +206,11 @@ class FakeBackend:
         self.inputs.clear()
         self._data.time = 0.0
         self._data.ctrl = np.zeros(self.n_actuators)
+
+    def set_rest_anchor(self, active: bool) -> None:
+        """Record rest-anchor control (duck-types simulation.Backend)."""
+        self.inputs.append(SimpleNamespace(type_name="SetRestAnchor",
+                                           value=active))
 
 
 @pytest.fixture

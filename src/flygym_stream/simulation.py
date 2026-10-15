@@ -72,6 +72,13 @@ class Backend(ABC):
     def reset(self) -> None:
         """Reset the simulation to its initial state."""
 
+    def set_rest_anchor(self, active: bool) -> None:
+        """Enable/disable the rest anchor (Scene-level, CPU path).
+
+        The GPU backend (v1) leaves it inert: its CPU shadow scene is
+        not stepped, so the anchor has nothing to act on there.
+        """
+
 
 class MuJoCoBackend(Backend):
     """CPU stepping via MuJoCo, driven through the Scene control surface."""
@@ -104,7 +111,10 @@ class MuJoCoBackend(Backend):
         elif isinstance(msg, ActuatorSet):
             self._scene.set_actuators(msg.values)
         elif isinstance(msg, Neutral):
-            self._scene.set_actuators(self._scene.neutral_actuators())
+            # Full neutral state (qpos/qvel/ctrl) + rest anchor: the
+            # mode-row neutral button returns the fly to its standing
+            # reference pose, not just its ctrl.
+            self._scene.neutral_restore()
         elif isinstance(msg, Orbit):
             self._scene.set_orbit_camera(azimuth=msg.azimuth, elevation=msg.elevation,
                                          distance_mm=msg.distance)
@@ -115,6 +125,10 @@ class MuJoCoBackend(Backend):
     def reset(self) -> None:
         """Reset the model to its initial (neutral) state."""
         self._scene.reset()
+
+    def set_rest_anchor(self, active: bool) -> None:
+        """Route the rest-anchor control to the Scene (CPU path)."""
+        self._scene.set_rest_anchor(active)
 
     def apply_state(self, msg: InputMessage) -> None:
         """Apply a state message through the Scene surface (M7.2).
@@ -357,9 +371,19 @@ class SimThread:
         self._push_frame(force=True)
 
     def reset(self) -> None:
-        """Reset model + renderer, then re-anchor pacing."""
+        """Reset model + renderer, then re-anchor pacing.
+
+        A reset rewinds sim time to the keyframe's time (0): the
+        telemetry/vision sim-time pacing state must re-base with it, or
+        it stays (pre-reset sim time) ahead of the clock and the
+        telemetry stream / vision pane go silent until sim time crawls
+        back up (2026-07-21: telemetry was dead after a WS ``reset``).
+        """
         self._backend.reset()
         self._renderer.reset()
+        self._next_telemetry = 0.0
+        if self._vision is not None:
+            self._vision.reset()
         self._rebase()
 
     def _run(self) -> None:
@@ -446,6 +470,16 @@ class SimThread:
                 try:
                     if isinstance(msg, Mode):
                         self._loco.set_mode(msg.value)
+                        # Rest state (M7.3): neutral holds the reference
+                        # pose (rest anchor on); any active mode
+                        # (walk/flap/manual) releases the root to free
+                        # physics.
+                        self._backend.set_rest_anchor(msg.value == "neutral")
+                        if msg.value == "neutral":
+                            # Full neutral state (qpos/qvel/ctrl): the
+                            # mode-row neutral returns the fly to its
+                            # standing reference pose, wherever it is.
+                            self._backend.apply_input(Neutral())
                     else:
                         self._loco.set_params(msg.freq, msg.amplitude,
                                               msg.phase)

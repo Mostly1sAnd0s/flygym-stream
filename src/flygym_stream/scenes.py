@@ -46,10 +46,14 @@ _WORLD_CLASSES = {
 class SceneConfig:
     """Every knob of a buildable NeuroMechFly scene (PLAN.md §7.1).
 
-    Defaults reproduce the historical default scene exactly (Phase 3):
-    full-size mesh, all-biological joints in yaw-pitch-roll order, 42
-    leg actuators (POSITION), flat ground, tracking camera, spawn at
-    (0, 0, 0.8) mm. ``world_kwargs`` pass through to the world
+    Defaults reproduce the historical default scene (full-size mesh, all
+    biological joints in yaw-pitch-roll order, 42 leg actuators
+    (POSITION), flat ground, tracking camera). ``spawn=None`` (default):
+    the root keeps the neutral keyframe pose — the fly starts dorsal-up
+    at ~2.1 m, dips to the ground and stands on its feet (rest state);
+    an explicit ``spawn`` overrides the root position instead. The
+    tethered world (pinned mocap root) falls back to (0, 0, 0.8) when no
+    spawn is given. ``world_kwargs`` pass through to the world
     constructor (e.g. flat ``half_size``). The musculoskeletal fly
     (``musculoskeletal=True``) builds the FlyMimic model (M7.6).
 
@@ -71,7 +75,7 @@ class SceneConfig:
     vision: bool = False
     adhesion: bool = False
     tracking_camera: bool = True
-    spawn: tuple[float, float, float] = (0.0, 0.0, 0.8)
+    spawn: tuple[float, float, float] | None = None
     spawn_quat: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)  # wxyz
     musculoskeletal: bool = False
 
@@ -127,13 +131,18 @@ def build_scene(config: SceneConfig) -> Scene:
         fly.add_tracking_camera(name="trackingcam")
 
     world = _WORLD_CLASSES[config.world](**config.world_kwargs)
+    # The tethered world places its pinned (mocap) root at the spawn:
+    # it needs a concrete position even when the caller used the
+    # default (keyframe-root) rest state.
+    world_spawn = (config.spawn if config.spawn is not None
+                   else (0.0, 0.0, 0.8))
     rotation = Rotation3D("quat", config.spawn_quat)
     if config.world == "tethered":
         # TetheredWorld pins the root (mocap body); the contact-body kwarg
         # does not apply to its add_fly.
-        world.add_fly(fly, config.spawn, rotation)
+        world.add_fly(fly, world_spawn, rotation)
     else:
-        world.add_fly(fly, config.spawn, rotation,
+        world.add_fly(fly, world_spawn, rotation,
                       bodysegs_with_ground_contact=config.contact_bodies)
 
     if config.vision:
@@ -145,10 +154,14 @@ def build_scene(config: SceneConfig) -> Scene:
     else:
         sim_wrapper = None
         mj_model, mj_data = world.compile()
-    # Home root pose for reset(): the spawn (free root only — the
-    # tethered world pins the root as a mocap body placed at spawn).
+    # Home root pose for reset(): an explicit spawn only — the default
+    # (spawn=None) rest state keeps the neutral keyframe's own root
+    # (dorsal-up; the fly dips to the ground and stands on its feet).
+    # Free root only — the tethered world pins the root as a mocap
+    # body placed at spawn.
     free_root = mj_model.jnt_type[0] == mj.mjtJoint.mjJNT_FREE
-    home_qpos = ([*config.spawn, *config.spawn_quat] if free_root else None)
+    home_qpos = ([*config.spawn, *config.spawn_quat]
+                 if free_root and config.spawn is not None else None)
     scene = Scene(mj_model, mj_data, actuator_ids=list(range(mj_model.nu)),
                   target_site=fly.name,
                   # Pacing camera for the render pass: the tracking camera,

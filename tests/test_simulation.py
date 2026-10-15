@@ -196,6 +196,40 @@ def test_mujoco_backend_applies_inputs(tiny_mj_model) -> None:
         b.apply_input(Pause())  # loop-control msgs are not sim inputs
 
 
+def test_neutral_message_restores_full_state(free_tiny_mj_model) -> None:
+    """The ``neutral`` message restores the full neutral state
+    (qpos/qvel/ctrl) and re-enables the rest anchor — the mode-row
+    neutral button returns the fly to its standing reference pose."""
+    m, d = free_tiny_mj_model
+    scene = Scene(m, d, actuator_ids=[0], target_site="target")
+    b = MuJoCoBackend(scene)
+    fresh = mj.MjData(m)
+    mj.mj_forward(m, fresh)
+    scene.step()
+    d.qpos[0] += 0.3
+    d.ctrl[0] = 0.123
+    b.set_rest_anchor(False)
+    b.apply_input(Neutral())
+    assert np.allclose(d.qpos, fresh.qpos)
+    assert np.allclose(d.ctrl, fresh.ctrl)
+    assert scene.rest_anchor is True
+
+
+def test_mujoco_backend_rest_anchor_routes_to_scene(free_tiny_mj_model) -> None:
+    """Backend.set_rest_anchor routes to the Scene (CPU path); the base
+    Backend is a no-op (GPU v1 leaves the anchor inert)."""
+    from flygym_stream.scene import Scene
+
+    m, d = free_tiny_mj_model
+    scene = Scene(m, d, actuator_ids=[0], target_site="target",
+                  neutral_keyframe="neutral")
+    b = MuJoCoBackend(scene)
+    b.set_rest_anchor(False)
+    assert scene.rest_anchor is False
+    b.set_rest_anchor(True)
+    assert scene.rest_anchor is True
+
+
 def test_mujoco_backend_reset(tiny_mj_model) -> None:
     scene = make_tiny_scene(tiny_mj_model)
     b = MuJoCoBackend(scene)
@@ -342,6 +376,101 @@ def test_loco_rejection_does_not_kill_sim(fake_backend, fake_renderer,
     inputs.put(Mode(value="walk"))  # a valid mode still works afterwards
     sim.tick()
     assert loco.calls == ["flap", "walk"]
+
+
+def test_reset_rebases_telemetry_pacing(fake_renderer, fake_clock) -> None:
+    """A reset rewinds sim time to the keyframe's 0: the telemetry pacing
+    state must re-base with it, or telemetry stays silent until sim time
+    crawls back up (2026-07-21: telemetry dead after a WS `reset`)."""
+    from types import SimpleNamespace
+
+    from flygym_stream.telemetry import TelemetryQueue
+
+    backend = FakeBackend()
+    inputs = InputQueue()
+    sink = SimpleNamespace(hz=10.0, queue=TelemetryQueue(),
+                           gatherer=SimpleNamespace(
+                               gather=lambda **k: {"t": 0.0}))
+    sim = SimThread(backend, fake_renderer, FrameQueue(), inputs,
+                    Config(width=320, height=240, output_fps=30),
+                    clock=fake_clock, sleep=fake_clock.sleep, telemetry=sink)
+    fake_clock.t = 0.15
+    sim.tick()  # advances to t=0.15; telemetry due
+    assert sink.queue.get_nowait() is not None
+    sim.reset()  # sim time rewinds to 0 (backend.reset + rebase)
+    fake_clock.t = 0.20  # +0.05 sim s after the reset
+    sim.tick()
+    assert sink.queue.get_nowait() is not None  # telemetry due again (re-based)
+
+
+class _AnchorRecordingBackend(FakeBackend):
+    """A FakeBackend that records set_rest_anchor calls."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.anchor: list[bool] = []
+
+    def set_rest_anchor(self, active: bool) -> None:
+        self.anchor.append(active)
+
+
+class _FakeLoco:
+    """Duck-typed pattern engine for SimThread (mode/set_mode/apply)."""
+
+    def __init__(self) -> None:
+        self.mode = "neutral"
+        self.calls: list[str] = []
+
+    def set_mode(self, mode: str) -> None:
+        self.mode = mode
+        self.calls.append(mode)
+
+    def apply(self, data) -> None:
+        pass
+
+    def set_params(self, freq, amplitude, phase) -> None:
+        pass
+
+
+def test_mode_change_drives_rest_anchor(fake_renderer, fake_clock) -> None:
+    """M7.3 rest state: `mode walk` releases the root to free physics
+    (anchor off); `mode neutral` re-anchors the reference pose."""
+    backend = _AnchorRecordingBackend()
+    inputs = InputQueue()
+    loco = _FakeLoco()
+    sim = make_sim(backend, fake_renderer, fake_clock, inputs, loco=loco)
+    inputs.put(Mode(value="walk"))
+    inputs.put(Mode(value="neutral"))
+    fake_clock.t = 0.010
+    sim.tick()
+    assert loco.calls == ["walk", "neutral"]
+    assert backend.anchor == [False, True]
+
+
+def test_mode_neutral_restores_full_state(free_tiny_mj_model,
+                                          fake_renderer, fake_clock) -> None:
+    """`mode neutral` returns the fly to its standing reference pose:
+    full neutral state (the root is restored, not just the gait) plus
+    the rest anchor (the mode-row button is the UI's only `neutral`)."""
+    from flygym_stream.scene import Scene
+
+    m, d = free_tiny_mj_model
+    scene = Scene(m, d, actuator_ids=[0], target_site="target")
+    backend = MuJoCoBackend(scene)
+    inputs = InputQueue()
+    loco = _FakeLoco()
+    sim = make_sim(backend, fake_renderer, fake_clock, inputs, loco=loco)
+    inputs.put(Mode(value="walk"))
+    fake_clock.t = 0.010
+    sim.tick()
+    d.qpos[0] += 0.4  # the fly "walked away"
+    inputs.put(Mode(value="neutral"))
+    fake_clock.t = 0.020
+    sim.tick()
+    assert scene.rest_anchor is True
+    fresh = mj.MjData(m)
+    mj.mj_forward(m, fresh)
+    assert float(d.qpos[0]) == pytest.approx(float(fresh.qpos[0]))
 
 
 class _StateRejectingBackend(FakeBackend):

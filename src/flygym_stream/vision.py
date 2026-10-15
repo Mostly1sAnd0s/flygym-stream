@@ -55,6 +55,12 @@ class VisionFeed:
         self._last = t
         return True
 
+    def reset(self) -> None:
+        """Re-base the pacing clock (a sim reset rewinds time to 0; a
+        stale ``_last`` would freeze the vision pane until sim time
+        crawled back up)."""
+        self._last = -np.inf
+
     def render_frame(self) -> bytes:
         """Render both eyes (left on top) -> ``V1`` + JPEG bytes.
 

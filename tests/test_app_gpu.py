@@ -189,7 +189,13 @@ def test_gpu_state_messages_change_real_physics(tmp_config) -> None:
                 ws.send_text(json.dumps(
                     {"type": "keyframe", "name": "neutral"}))
                 applied(Keyframe)
-                assert abs(d.qpos[2] - 0.8) < 1e-3  # spawn height restored
+                scratch = mj.MjData(scene.mj_model)
+                mj.mj_resetDataKeyframe(scene.mj_model, scratch,
+                                        mj.mj_name2id(scene.mj_model,
+                                                       mj.mjtObj.mjOBJ_KEY,
+                                                       "neutral"))
+                assert abs(d.qpos[2] - float(scratch.qpos[2])) < 1e-6
+                # the keyframe's own root is restored (no spawn override)
     finally:
         sim.stop()
         renderer.close()
@@ -219,13 +225,24 @@ def test_gpu_mode_walk_moves_root_more_than_50mm_in_2sim_s(tmp_config) -> None:
             with client.websocket_connect("/ws") as ws:
                 ws.send_text(HELLO)
                 recv_status(ws)
-                # The fly spawns 0.8 m up: let it land and settle first
-                # (observed: at rest within ~0.3 sim s) so the walk window
-                # measures gait propulsion, not fall/bounce transients.
+                # Default rest: the fly starts at the neutral keyframe
+                # (~2.1 m up), lands on its feet (~0.5 sim s) and stands
+                # (the rest anchor holds the orientation). A standing fly
+                # has brief per-leg-strike velocity spikes, so "at rest"
+                # means POSITION stability, not |qvel| < eps.
+                import numpy as np
+                rest_t, rest_p = None, None
+
                 def at_rest() -> bool:
-                    v = d.qvel[0:3]
-                    return float(max(abs(v[0]), abs(v[1]), abs(v[2]))) < 0.02
-                deadline = time.monotonic() + 15.0
+                    nonlocal rest_t, rest_p
+                    now = time.monotonic()
+                    p = d.qpos[0:3]
+                    if rest_t is None or now - rest_t >= 0.4:
+                        rest_t, rest_p = now, p.copy()
+                        return False
+                    return (float(np.abs(p - rest_p).max()) < 0.02
+                            and float(d.qpos[2]) < 1.6)
+                deadline = time.monotonic() + 20.0
                 while not at_rest() and time.monotonic() < deadline:
                     time.sleep(0.02)
                 assert at_rest(), "fly did not settle before walking"

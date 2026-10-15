@@ -7,9 +7,11 @@ mesh fetch; on a warm cache they run offline.
 
 from __future__ import annotations
 
+import math
 import pathlib
 
 import mujoco as mj
+import numpy as np
 import pytest
 
 from flygym_stream import scene as scene_mod
@@ -22,6 +24,87 @@ def make_tiny_scene(tiny_mj_model) -> Scene:
     """Wrap the tiny fixture model in a Scene (site 'target', no keyframe)."""
     m, d = tiny_mj_model
     return Scene(m, d, actuator_ids=[0], target_site="target")
+
+
+def make_free_tiny_scene(free_tiny_mj_model) -> Scene:
+    """Wrap the free-root tiny model (site 'target', no keyframe)."""
+    m, d = free_tiny_mj_model
+    return Scene(m, d, actuator_ids=[0], target_site="target")
+
+
+def quat_angle(q0, q1) -> float:
+    """Angle (rad) between two quaternions (sign-independent)."""
+    a = np.asarray(q0, dtype=float)
+    b = np.asarray(q1, dtype=float)
+    a = a / np.linalg.norm(a)
+    b = b / np.linalg.norm(b)
+    return 2.0 * math.acos(min(1.0, abs(float(np.dot(a, b)))))
+
+
+# --- Rest anchor (default rest state: the fly holds its reference pose) ---
+
+
+def test_rest_anchor_holds_root_pose(free_tiny_mj_model) -> None:
+    """Default rest anchor: the free root's orientation is held (its
+    angular velocity is zeroed every substep) while the actuated
+    appendage stays dynamic. Without the anchor the actuator's reaction
+    torque spins the root (ctrl target != joint value, like the fly's
+    neutral pose driving its leg actuators)."""
+    scene = make_free_tiny_scene(free_tiny_mj_model)
+    assert scene.rest_anchor is True  # on by default
+    scene.reset()
+    scene.mj_data.ctrl[0] = 1.0  # actuator demand -> reaction torque
+    quat0 = scene.mj_data.qpos[3:7].copy()
+    hinge0 = float(scene.mj_data.qpos[7])
+    for _ in range(300):
+        scene.step()
+    assert float(np.abs(scene.mj_data.qvel[3:6]).max()) < 1e-12  # mechanism
+    assert abs(float(scene.mj_data.qpos[7]) - hinge0) > 0.01  # appendage free
+    assert quat_angle(quat0, scene.mj_data.qpos[3:7]) < 0.02  # root held
+    scene.reset()
+    scene.set_rest_anchor(False)
+    scene.mj_data.ctrl[0] = 1.0
+    quat1 = scene.mj_data.qpos[3:7].copy()
+    for _ in range(300):
+        scene.step()
+    assert quat_angle(quat1, scene.mj_data.qpos[3:7]) > 0.2  # root spun
+
+
+def test_state_write_disables_rest_anchor(free_tiny_mj_model) -> None:
+    """Explicit state writes take over the physics: spawn/set_state turn
+    the rest anchor off; reset() returns to the anchored rest state."""
+    scene = make_free_tiny_scene(free_tiny_mj_model)
+    assert scene.rest_anchor is True
+    scene.set_root_pose((0.1, 0.2, 0.5), (1.0, 0.0, 0.0, 0.0))
+    assert scene.rest_anchor is False
+    scene.reset()
+    assert scene.rest_anchor is True
+    scene.apply_state_arrays(qpos=scene.mj_data.qpos.copy())
+    assert scene.rest_anchor is False
+
+
+def test_neutral_restore_full_state(free_tiny_mj_model) -> None:
+    """neutral_restore() restores the full neutral state (qpos/qvel/ctrl;
+    keyframe state when a keyframe exists, plain default state when not)
+    and re-enables the rest anchor, without touching the sim clock."""
+    m, d = free_tiny_mj_model
+    scene = make_free_tiny_scene(free_tiny_mj_model)
+    fresh = mj.MjData(m)
+    mj.mj_forward(m, fresh)
+    qpos0, qvel0, ctrl0 = (fresh.qpos.copy(), fresh.qvel.copy(),
+                           fresh.ctrl.copy())
+    scene.step()  # advance the clock + move the state away
+    t_before = float(d.time)
+    d.qpos[0] += 0.3
+    d.qvel[0] = 2.0
+    d.ctrl[0] = 0.123
+    scene.set_rest_anchor(False)
+    scene.neutral_restore()
+    assert np.allclose(d.qpos, qpos0)
+    assert np.allclose(d.qvel, qvel0)
+    assert np.allclose(d.ctrl, ctrl0)
+    assert scene.rest_anchor is True
+    assert d.time == pytest.approx(t_before)  # clock untouched
 
 
 def test_scene_step_advances_time(tiny_mj_model) -> None:

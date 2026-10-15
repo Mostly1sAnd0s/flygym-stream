@@ -71,12 +71,15 @@ def scene_config_from_args(args: argparse.Namespace) -> object:
            "legs-active": ActuatedDOFPreset.LEGS_ACTIVE_ONLY}[args.dof]
     mesh = {"fullsize": MeshType.FULLSIZE,
             "simplified": MeshType.SIMPLIFIED_MAX2000FACES}[args.mesh]
-    try:
-        spawn = tuple(float(v) for v in args.spawn.split(","))
-    except ValueError:
-        sys.exit(f"--spawn expects x,y,z numbers, got {args.spawn!r}")
-    if len(spawn) != 3:
-        sys.exit(f"--spawn expects x,y,z, got {len(spawn)} values")
+    if args.spawn is None:
+        spawn = None  # default rest state: the neutral keyframe's root
+    else:
+        try:
+            spawn = tuple(float(v) for v in args.spawn.split(","))
+        except ValueError:
+            sys.exit(f"--spawn expects x,y,z numbers, got {args.spawn!r}")
+        if len(spawn) != 3:
+            sys.exit(f"--spawn expects x,y,z, got {len(spawn)} values")
     return SceneConfig(actuated_preset=dof, mesh_type=mesh,
                        actuator_type=ActuatorType[args.actuator.upper()],
                        world=args.world, spawn=spawn, vision=args.vision,
@@ -211,8 +214,10 @@ def main(argv: list[str] | None = None) -> None:
                     choices=["flat", "blocks", "gapped", "mixed", "tethered"],
                     help="world: terrain variants, or tethered = body pinned "
                          "(motor-control experiments)")
-    sv.add_argument("--spawn", default="0,0,0.8",
-                    help="root spawn position x,y,z (model units, mm)")
+    sv.add_argument("--spawn", default=None,
+                    help="root spawn position x,y,z (model units, m); "
+                         "default: the neutral keyframe's root (the fly "
+                         "dips to the ground and stands on its feet)")
     sv.add_argument("--vision", action="store_true",
                     help="add the fly's eye cameras (compound-eye sensors)")
     sv.add_argument("--adhesion", action="store_true",

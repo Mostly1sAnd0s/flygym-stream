@@ -68,6 +68,7 @@ class Scene:
         distance_mm: float = DEFAULT_DISTANCE_MM,
         home_qpos: Sequence[float] | None = None,
         vision: object | None = None,
+        rest_anchor: bool = True,
     ) -> None:
         self.mj_model = mj_model
         self.mj_data = mj_data
@@ -78,9 +79,15 @@ class Scene:
         self.vision = vision
         # Root (qpos[0:7]) to restore on reset(): the spawn pose the scene
         # was built with (the neutral keyframe stores its own root pose,
-        # which the spawn overrides).
+        # which the spawn overrides; None = the keyframe root as-is).
         self._home_qpos = (np.asarray(home_qpos, dtype=float)
                            if home_qpos is not None else None)
+        # Rest anchor (M7.3 rest state): while active, the free root's
+        # angular velocity is zeroed every substep — the fly holds its
+        # reference pose (a standing fly's yaw limit cycle is a ~1 Hz
+        # leg-pump oscillation, not a decaying transient). Pinned-root
+        # scenes (tethered/musculoskeletal) have nothing to anchor.
+        self._rest_anchor = bool(rest_anchor) and self._root_is_free()
         site_id = mj.mj_name2id(mj_model, mj.mjtObj.mjOBJ_SITE, target_site)
         if site_id < 0:
             raise ValueError(f"target site {target_site!r} not found in model")
@@ -104,19 +111,60 @@ class Scene:
         return len(self.actuator_ids)
 
     def step(self) -> None:
-        """Advance the simulation by one substep (the model's dt)."""
+        """Advance the simulation by one substep (the model's dt), then
+        apply the rest anchor (zero the root's angular velocity) when
+        active: the root holds its pose, the appendages stay dynamic."""
         mj.mj_step(self.mj_model, self.mj_data)
+        if self._rest_anchor:
+            self.mj_data.qvel[3:6] = 0.0
 
     def reset(self) -> None:
         """Restore the initial state: the neutral keyframe (or a plain
-        data reset) plus the home root pose (spawn), then forward."""
+        data reset) plus the home root pose (spawn; the keyframe root
+        when no spawn), re-enable the rest anchor, then forward."""
         if self._neutral_key_id >= 0:
             mj.mj_resetDataKeyframe(self.mj_model, self.mj_data, self._neutral_key_id)
         else:
             mj.mj_resetData(self.mj_model, self.mj_data)
         if self._home_qpos is not None:
             self.mj_data.qpos[0:7] = self._home_qpos
+        self._rest_anchor = self._root_is_free()
         mj.mj_forward(self.mj_model, self.mj_data)
+
+    def neutral_restore(self) -> None:
+        """Restore the full neutral state (qpos/qvel/ctrl from the
+        neutral keyframe, or the plain default state when the model has
+        no such keyframe) plus the home root pose, and re-enable the
+        rest anchor — the mode-row ``neutral`` returns the fly to its
+        standing reference pose. The sim clock is left untouched
+        (``reset()`` also rebases it via the keyframe's time)."""
+        scratch = mj.MjData(self.mj_model)
+        if self._neutral_key_id >= 0:
+            mj.mj_resetDataKeyframe(self.mj_model, scratch, self._neutral_key_id)
+        else:
+            mj.mj_resetData(self.mj_model, scratch)
+        d = self.mj_data
+        d.qpos[:] = scratch.qpos
+        d.qvel[:] = scratch.qvel
+        d.ctrl[:] = scratch.ctrl
+        if self._home_qpos is not None:
+            d.qpos[0:7] = self._home_qpos
+        self._rest_anchor = self._root_is_free()
+        mj.mj_forward(self.mj_model, d)
+
+    @property
+    def rest_anchor(self) -> bool:
+        """Whether the rest anchor is active (free-root scenes only)."""
+        return self._rest_anchor
+
+    def set_rest_anchor(self, active: bool) -> None:
+        """Enable/disable the rest anchor (no-op on pinned-root scenes).
+
+        Active while the sim rests in the neutral reference pose;
+        released by explicit state writes (spawn/set_state) and by any
+        non-neutral locomotion mode (walk/flap/manual = free physics).
+        """
+        self._rest_anchor = bool(active) and self._root_is_free()
 
     def set_actuators(self, values: Sequence[float]) -> None:
         """Set ctrl of the exposed actuators (order = actuator_ids)."""
@@ -170,6 +218,8 @@ class Scene:
 
     def set_root_pose(self, pos: Sequence[float], quat: Sequence[float]) -> None:
         """Set the free root (qpos[0:7]); normalizes the quaternion.
+        An explicit state write takes over the physics: the rest anchor
+        is released (the fly now falls/walks under free dynamics).
 
         Raises:
             ValueError: If the root is not a free joint (tethered/fixed
@@ -184,6 +234,7 @@ class Scene:
         q = q / np.linalg.norm(q)
         self.mj_data.qpos[0:3] = np.asarray(pos, dtype=float)
         self.mj_data.qpos[3:7] = q
+        self._rest_anchor = False
         mj.mj_forward(self.mj_model, self.mj_data)
 
     def apply_keyframe(self, name: str) -> None:
@@ -203,7 +254,8 @@ class Scene:
     def apply_state_arrays(self, qpos: Sequence[float] | None = None,
                            qvel: Sequence[float] | None = None,
                            ctrl: Sequence[float] | None = None) -> None:
-        """Write full-length state arrays and forward.
+        """Write full-length state arrays and forward. An explicit state
+        write takes over the physics: the rest anchor is released.
 
         Raises:
             ValueError: If an array's length != the model's nq/nv/nu.
@@ -220,6 +272,7 @@ class Scene:
             self.mj_data.qvel[:] = qvel
         if ctrl is not None:
             self.mj_data.ctrl[:] = ctrl
+        self._rest_anchor = False
         mj.mj_forward(self.mj_model, self.mj_data)
 
     def apply_force(self, body: str | int,

@@ -130,13 +130,13 @@ def test_scene_config_from_args_defaults() -> None:
 
     args = argparse.Namespace(
         dof="legs-active", mesh="fullsize", actuator="position", world="flat",
-        spawn="0,0,0.8", vision=False, adhesion=False, musculoskeletal=False,
+        spawn=None, vision=False, adhesion=False, musculoskeletal=False,
     )
     cfg = scene_config_from_args(args)
     assert cfg.actuated_preset is ActuatedDOFPreset.LEGS_ACTIVE_ONLY
     assert cfg.mesh_type is MeshType.FULLSIZE
     assert cfg.actuator_type is ActuatorType.POSITION
-    assert cfg.world == "flat" and cfg.spawn == (0.0, 0.0, 0.8)
+    assert cfg.world == "flat" and cfg.spawn is None  # keyframe root rest
     assert not (cfg.vision or cfg.adhesion or cfg.musculoskeletal)
 
 

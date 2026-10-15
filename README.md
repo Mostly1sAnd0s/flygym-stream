@@ -66,7 +66,7 @@ uv run python -m flygym_stream.cli serve --bind 127.0.0.1 --port 8765
 # Phase 7 research-sandbox options (see below):
 #          --dof all|legs|legs-active (126/48/42 actuators),
 #          --mesh fullsize|simplified, --actuator <type>,
-#          --world flat|blocks|gapped|mixed|tethered, --spawn x,y,z (mm),
+#          --world flat|blocks|gapped|mixed|tethered, --spawn x,y,z
 #          --adhesion (+6 stick actuators), --vision (fly eye cameras),
 #          --musculoskeletal (FlyMimic muscle model, 15 muscle actuators),
 #          --telemetry-hz 10 (0 = off)
@@ -103,7 +103,9 @@ JSON protocol (protocol version still 1; all Phase 7 messages are additive):
   `scenes.build_scene(SceneConfig(...))`): `--dof all` = 126 actuators
   (incl. 6 wing DOFs), `--mesh simplified`, `--actuator velocity|...`,
   `--world blocks|gapped|mixed|tethered` (terrain / pinned-root),
-  `--spawn x,y,z` (mm), `--adhesion` (6 leg stick actuators), `--vision`
+  `--spawn x,y,z` (model units, m; default: the neutral keyframe's root —
+  see the rest-state note below), `--adhesion` (6 leg stick actuators),
+  `--vision`
   (fly eye cameras), `--musculoskeletal` (FlyMimic Hill-type muscle model;
   replaces the whole model — 14 DOF, 15 muscle actuators with activation
   ctrl 0..1, only the left-front leg is muscle-driven in that model).
@@ -116,16 +118,21 @@ JSON protocol (protocol version still 1; all Phase 7 messages are additive):
   `loco {freq,amplitude,phase}`. `walk` is a tripod six-leg gait (pure
   function of sim time; offsets from a baseline captured on mode entry);
   `flap` needs `--dof all` (wing actuators; the UI disables the flap
-  button when the build has no wing actuators). Note (verified): the
-  neutral keyframe stores an upright (dorsal-up) pose, but the fly falls
-  from the 0.8 m spawn and rests on the ground with a slow creep-rotation,
-  so `walk` from rest produces a righting kick (the headline test: >50 mm
-  in 2 sim s). A passive standing rest pose is **not achievable** in this
-  model (research-concluded 2026-07-21: the stance is laterally neutral —
-  unactuated roll DOFs give no restoring force — and the COM cannot be
-  held over the support polygon; see the evidence chain in PLAN.md M7.3
-  notes and HANDOFF.md); the next step is a closed-loop righting/
-  stance controller on the built-in contact sensors.
+  button when the build has no wing actuators).
+- **Default rest state** (2026-07-21, user bug fix): the fly starts in
+  the neutral keyframe's upright (dorsal-up) pose at ~2.1 m — no more
+  0.8 m spawn drop onto its back — dips ~1 m in ~0.5 sim s and **stands
+  on its six feet** (root z 1.08 m, all 6 tarsus in ground contact,
+  position stable to the millimetre). The model's neutral-ctrl stance is
+  self-stable (COM inside the support polygon); its ~1 Hz yaw limit
+  cycle (the old "slowly rotating" creep) is held by a **rest anchor**
+  (the root's angular velocity is zeroed every substep while anchored).
+  The anchor is on by default and in `neutral` mode; `spawn`/`set_state`
+  and any non-neutral mode release it to free physics. `mode neutral` / the
+  `neutral` button do a full state restore — the fly returns to its
+  standing reference pose. (Earlier research concluded a passive standing
+  pose was not achievable; that conclusion was based on the wrong stance
+  geometry — see the corrected evidence chain in PLAN.md M7.3 notes.)
 - **Telemetry** (`--telemetry-hz`, default 10): `t, qpos[133], qvel[132],
   ctrl[u], root{pos,quat}, contact{6 legs}, paused, mode` from MjData;
   `model-info` after hello (units, joints, actuators, sites, cameras,
@@ -147,7 +154,7 @@ record).
   builds with >42 actuators get the virtualized DOF table with live qpos
   readouts), `pause` / `resume` / `step` / `reset` / `log` buttons, and a
   playback speed slider (0.1-10x). The neutral pose is the mode row's
-  `neutral` button (restores the neutral keyframe ctrl).
+  `neutral` button (full restore of the standing reference pose).
 - **Sandbox panels** (Phase 7): mode row (neutral/walk/flap/manual — flap
   is disabled unless the build has wing actuators, i.e. `--dof all`) with
   live gait tuning (freq/amplitude/phase); perturbation panel (spawn x/y/z,

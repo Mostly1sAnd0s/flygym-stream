@@ -86,6 +86,57 @@ def test_spawn_position() -> None:
 
 
 @pytest.mark.network
+def test_default_spawn_none_keeps_keyframe_root() -> None:
+    """Default rest state (no spawn drop): the root keeps the neutral
+    keyframe pose (dorsal-up at ~2.1 m) instead of the old 0.8 m
+    spawn that landed the fly on its back (2026-07-21 user report)."""
+    import math
+
+    import numpy as np
+
+    s = build_scene(SceneConfig())
+    key = mj.mj_name2id(s.mj_model, mj.mjtObj.mjOBJ_KEY, "neutral")
+    scratch = mj.MjData(s.mj_model)
+    mj.mj_resetDataKeyframe(s.mj_model, scratch, key)
+    assert np.allclose(s.mj_data.qpos, scratch.qpos, atol=1e-9)
+    q = s.mj_data.qpos[3:7]
+    cos_ang = min(1.0, abs(float(np.dot(q, scratch.qpos[3:7]))))
+    assert 2.0 * math.acos(cos_ang) < 0.01  # keyframe orientation kept
+
+
+@pytest.mark.network
+def test_default_rest_state_stands() -> None:
+    """The default rest state stands: from the keyframe the fly lands on
+    its feet within ~1 sim s and then holds — height steady, position
+    stable to the centimetre, dorsal up, feet in contact, orientation
+    steady (the rest anchor kills the yaw limit cycle that made the
+    old default look like a dead fly slowly rotating)."""
+    import math
+
+    import numpy as np
+
+    s = build_scene(SceneConfig())
+    m, d = s.mj_model, s.mj_data
+    for _ in range(10000):  # 1 sim s: land
+        s.step()
+    p1 = d.qpos[0:3].copy()
+    q1 = d.qpos[3:7].copy()
+    for _ in range(10000):  # +1 sim s: must stay standing
+        s.step()
+    z = float(d.qpos[2])
+    assert 0.5 < z < 1.6, f"landed height {z:.3f} m (should stand on legs)"
+    assert float(np.abs(d.qpos[0:3] - p1).max()) < 0.01, "position must hold"
+    w = d.geom_xpos[mj.mj_name2id(m, mj.mjtObj.mjOBJ_GEOM, "nmf/l_wing")]
+    t = d.geom_xpos[mj.mj_name2id(m, mj.mjtObj.mjOBJ_GEOM, "nmf/c_thorax")]
+    assert float(w[2] - t[2]) > 0.1, "wings must be above the thorax"
+    assert d.ncon >= 4, "feet must be on the ground"
+    a = q1 / np.linalg.norm(q1)
+    b = d.qpos[3:7] / np.linalg.norm(d.qpos[3:7])
+    assert 2.0 * math.acos(min(1.0, abs(float(np.dot(a, b))))) < 0.02, \
+        "orientation must be steady (rest anchor)"
+
+
+@pytest.mark.network
 def test_tethered_root_pinned() -> None:
     """TetheredWorld: the root is a pinned mocap body — 300 steps under
     gravity must not move it (appendages stay free). The free root joint
@@ -292,3 +343,24 @@ def test_vision_frame_renders_eye_images(tmp_config) -> None:
     assert img.size[1] == 2 * img.size[1] // 2  # stacked L/R eyes
     arr = np.asarray(img)
     assert arr.shape[0] > 100 and arr.mean() > 1  # not a black frame
+
+
+def test_vision_pacing_resets_with_sim_time() -> None:
+    """VisionFeed pacing must rebase when sim time is reset: a WS `reset`
+    rewinds time to the keyframe's 0; a stale ``_last`` would leave the
+    vision pane frozen until sim time crawled back up (same bug class as
+    the telemetry re-base)."""
+    from types import SimpleNamespace
+
+    from flygym_stream.config import Config
+    from flygym_stream.vision import VisionFeed
+
+    feed = VisionFeed(SimpleNamespace(vision=object()),
+                      Config(width=320, height=240, output_fps=30))
+    data = SimpleNamespace(time=0.5)
+    assert feed.render_as_needed(data)  # warm: due immediately
+    data.time = 0.55
+    assert not feed.render_as_needed(data)  # paced (interval 2/30 s)
+    data.time = 0.0  # sim time reset
+    feed.reset()
+    assert feed.render_as_needed(data)  # re-based: due again at t=0
