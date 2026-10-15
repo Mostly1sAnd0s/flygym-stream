@@ -10,6 +10,7 @@ body {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* single-viewport app layout; no page scroll */
 }
 
 header {
@@ -18,15 +19,19 @@ header {
   gap: 1rem;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid #2a2e35;
+  min-width: 0;
 }
 
-h1 { font-size: 1.1rem; margin: 0; font-weight: 600; }
+h1 { font-size: 1.1rem; margin: 0; font-weight: 600; white-space: nowrap; }
 
 .hud {
   font-variant-numeric: tabular-nums;
   color: #8fd18f;
   font-size: 0.85rem;
   white-space: pre;
+  min-width: 0;      /* let the HUD (not the header) truncate on narrow windows */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hud.warn { color: #e0b34c; }
@@ -36,11 +41,16 @@ main {
   flex: 1;
   display: flex;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 #video-pane {
   position: relative;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;  /* the key fix: without this the flex item won't shrink below
+                   the JPEG's intrinsic width (1280 px) and the sidebar is
+                   pushed off the edge of narrow browser windows */
   margin: 0.75rem;
   background: #000;
   border: 1px solid #2a2e35;
@@ -65,7 +75,10 @@ main {
                 user-select: none; -webkit-user-drag: none; }
 
 #controls {
+  flex: 0 0 320px;  /* fixed sidebar: never stretches or shrinks; the video
+                      pane absorbs all width changes */
   width: 320px;
+  min-width: 0;
   padding: 0.75rem 1rem;
   border-left: 1px solid #2a2e35;
   overflow-y: auto;
@@ -78,6 +91,7 @@ main {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;  /* the 5 control buttons don't fit one 288 px line */
 }
 
 .row label { min-width: 52px; color: #9aa4b0; }
