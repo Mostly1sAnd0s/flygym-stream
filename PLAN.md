@@ -507,6 +507,62 @@ protocol/app/gpu suites +≤ 100 each.
     (skips dirty/dragged indices) so pattern-mode gait is visible in the
     sliders; `actuators` sends are full-array + coalesced per rAF.
 - M7.6 Stretch: terrain worlds → tethered → musculoskeletal → vision.
+  - ✅ Terrain (`--world blocks|gapped|mixed`) + tethered: buildable since
+    M7.1 (`a185829`, network-tested); tethered root pinned, spawn
+    rejected at apply time (logged).
+  - ✅ Musculoskeletal (`--musculoskeletal`): `e8dbe48`.
+    FlyMimic self-contained MJCF via `MusculoskeletalWorld` (floor/
+    lights/anchored thorax — no world compose, no spawn); 14 q/nv DOF,
+    15 Hill-type muscle actuators (dyntype 4, ctrl = activation 0..1,
+    only L-front leg muscle-driven per flygym); orbit-target site
+    `nmf` added at the `Thorax` body; renderer pacing camera = model
+    `scene` camera; telemetry root falls back to body `Thorax`; CLI
+    skips the leg-locomotion engine. Also fixed telemetry starvation
+    (send loop checks the telemetry queue every iteration).
+  - 🚧 **Vision (`--vision`) — IN PROGRESS, tests red (TDD stop point):**
+    DONE: `src/flygym_stream/vision.py` (`VisionFeed`: sim-time paced at
+    half output fps, `render_frame()` = `V1` prefix + JPEG of the two
+    fisheye-corrected eyes stacked, via
+    `flygym.Simulation.get_raw_vision(fly_name)`); `Scene.__init__` gains
+    a `vision` param (the flygym.Simulation wrapper); RED tests in
+    `tests/test_scenes.py` (`test_vision_scene_builds_with_eye_cameras`
+    [network], `test_vision_frame_renders_eye_images` [gpu]) and
+    `tests/test_app.py` (`test_ws_vision_frames_pass_through`).
+    REMAINING (in order):
+    1. `scenes.py`: vision build path — when `config.vision` (and not
+       musculoskeletal): construct the model via
+       `sim_wrapper = flygym.Simulation(world)` and use
+       `sim_wrapper.mj_model/mj_data` (Simulation.__init__ calls
+       world.compile()); pass `vision=sim_wrapper` to `Scene(...)`;
+       raise ValueError for musculoskeletal+vision (MSK vision is
+       experimental in flygym). Note: `Simulation` import is
+       `from flygym import Simulation as FlygymSimulation` (it is in
+       flygym's top-level `__all__`).
+    2. `simulation.py` SimThread: new kwarg `vision: object | None`
+       (a VisionFeed); in `tick()` after `_maybe_telemetry()`:
+       `if self._vision is not None and self._vision.render_as_needed(self._backend.data): self._vision_queue.put(self._vision.render_frame())`
+       (add `vision_queue: object | None` kwarg too; call on sim
+       thread — GL context binds to creating thread).
+    3. `app.py`: `Producer.vision_queue: object | None = None`; send
+       loop: after the telemetry check, `vframe = await run_sync(
+       producer.vision_queue.get_nowait)` → `await ws.send_bytes(vframe)`
+       (V1-prefixed binary; main frames stay unprefixed).
+    4. `cli.py` serve: when `scene.vision is not None`:
+       `from flygym_stream.vision import VisionFeed`; build
+       `vision_feed = VisionFeed(scene, config)`, a `vision_frames =
+       FrameQueue()`, pass `vision=vision_feed, vision_queue=vision_frames`
+       to SimThread and `vision_queue=vision_frames` to Producer.
+    5. `web/index.html`: `<img id="vision" alt="fly vision" class="hidden">
+       overlay in `#video-pane`; `web/style.css`: position it (e.g.
+       top-right, ~180 px wide, opacity 0.9); `web/app.js`: make
+       `ws.onmessage` handle binary async — if the first 2 bytes are
+       `V1` (0x56 0x31) route `new Blob([ev.data.slice(2)])` to the
+       vision `<img>`; otherwise the existing `onFrame`.
+    6. Optional: `scripts/ui_smoke.cjs` check for the V1 routing.
+    7. Full regression (default+gpu+network+ui_smoke) + live serve
+       `--vision` smoke (status/model-info + vision frames) + commit.
+  - Wire note: vision framing is binary (no protocol.py change); main
+    MJPEG frames = bare JPEG, vision frames = `V1` + JPEG.
 
 **7.10 Risks & decisions**:
 - Runtime scene rebuild: out of scope v1 (process restart; decision).

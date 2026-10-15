@@ -341,3 +341,35 @@ def test_ws_telemetry_not_starved_by_frames(
                 assert received[0]["t"] == 0.5
     finally:
         sim.stop()
+
+
+def test_ws_vision_frames_pass_through(
+        tmp_config, fake_backend, fake_renderer) -> None:
+    """V1-prefixed binary vision frames flow to the client alongside
+    main frames (same WS, binary channel, prefix framing)."""
+    from flygym_stream.stream import FrameQueue as FQ
+
+    frames, inputs = FQ(), InputQueue()
+    vqueue = FQ()
+    sim = SimThread(fake_backend, fake_renderer, frames, inputs, tmp_config)
+    sim.start()
+    app = create_app(tmp_config, Producer(frames, inputs, fake_backend, sim,
+                                          vision_queue=vqueue))
+    try:
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws") as ws:
+                ws.send_text(HELLO)
+                recv_status(ws)
+                vqueue.put(b"V1" + b"\xff\xd8fakejpeg")
+                # receive until the vision frame (frames interleave)
+                deadline = time.monotonic() + 5.0
+                got = None
+                while time.monotonic() < deadline:
+                    msg = ws.receive()
+                    if msg.get("bytes"):
+                        if msg["bytes"][:2] == b"V1":
+                            got = msg["bytes"]
+                            break
+                assert got == b"V1\xff\xd8fakejpeg"
+    finally:
+        sim.stop()

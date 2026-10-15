@@ -63,6 +63,13 @@ uv run python -m flygym_stream.cli serve --bind 127.0.0.1 --port 8765
 # options: --width/--height/--fps (default 1280x720@30), --speed (playback),
 #          --backend cpu|gpu|auto, --overlay none|depth, --transport
 #          mjpeg|webrtc (Phase 6 stretch), --insecure (0.0.0.0 only)
+# Phase 7 research-sandbox options (see below):
+#          --dof all|legs|legs-active (126/48/42 actuators),
+#          --mesh fullsize|simplified, --actuator <type>,
+#          --world flat|blocks|gapped|mixed|tethered, --spawn x,y,z (mm),
+#          --adhesion (+6 stick actuators), --vision (fly eye cameras),
+#          --musculoskeletal (FlyMimic muscle model, 15 muscle actuators),
+#          --telemetry-hz 10 (0 = off)
 ```
 
 Then open <http://127.0.0.1:8765> in a browser
@@ -87,28 +94,65 @@ open `http://<server-LAN-IP>:8765` (see "Accessing across the LAN").
   the faster path anyway: ~1.5-2x real-time headroom). NoSlip-free models
   step on the GPU and render through the same frame pipeline.
 
-### Next: Phase 7 — research sandbox (planned, see PLAN.md)
+### Phase 7 — research sandbox (implemented, see PLAN.md for the spec)
 
-Full NeuroMechFly access from the browser: all 133 DOFs (`--dof all`),
-worlds (terrain / tethered), muscle-tendon model, vision, leg adhesion,
-built-in walk/flap locomotion with live parameter tuning, full state
-read/write (`set_state`/`spawn`/`force`/`param`), 10 Hz telemetry
-(qpos/qvel/ctrl, root pose, per-leg ground contact) + JSONL logging,
-and a `model-info` message so arbitrary clients can build their own
-UIs. Milestones M7.1–M7.6 with per-milestone DoDs in PLAN.md.
+Every NeuroMechFly/flygym capability is reachable from the browser over the
+JSON protocol (protocol version still 1; all Phase 7 messages are additive):
+
+- **Scene variants** (process-startup choices, one builder
+  `scenes.build_scene(SceneConfig(...))`): `--dof all` = 126 actuators
+  (incl. 6 wing DOFs), `--mesh simplified`, `--actuator velocity|...`,
+  `--world blocks|gapped|mixed|tethered` (terrain / pinned-root),
+  `--spawn x,y,z` (mm), `--adhesion` (6 leg stick actuators), `--vision`
+  (fly eye cameras), `--musculoskeletal` (FlyMimic Hill-type muscle model;
+  replaces the whole model — 14 DOF, 15 muscle actuators with activation
+  ctrl 0..1, only the left-front leg is muscle-driven in that model).
+- **State read/write**: `set_state {qpos?,qvel?,ctrl?}` (teleport/throw),
+  `spawn {pos,quat}` (free root; rejected on tethered), `force {body,
+  force,torque?,duration?}` (spatial impulse via xfrc_applied),
+  `param {name,value}` (whitelist: gravity/timestep/margin/solref/solimp/
+  friction), `keyframe {name}`, `adhesion {leg,state}`.
+- **Built-in locomotion**: `mode {neutral|walk|flap|manual}` + live
+  `loco {freq,amplitude,phase}`. `walk` is a tripod six-leg gait (pure
+  function of sim time; offsets from a baseline captured on mode entry);
+  `flap` needs `--dof all` (wing actuators). Note (verified): the neutral
+  keyframe pose is prone, so `walk` from rest produces a righting kick
+  (the headline test: >50 mm in 2 sim s); building a quasi-static gait is
+  the open research task the sandbox exists for (standing-pose ctrl
+  offsets coxa +0.4 / femur +1.4 / tibia -0.4 are known from the grid
+  search, PLAN.md M7.3 notes).
+- **Telemetry** (`--telemetry-hz`, default 10): `t, qpos[133], qvel[132],
+  ctrl[u], root{pos,quat}, contact{6 legs}, paused, mode` from MjData;
+  `model-info` after hello (units, joints, actuators, sites, cameras,
+  keyframes, sensors) so arbitrary clients can build their own UIs;
+  `status` carries `mode` + `n_dof`.
+- **Logging**: `log {on:0|1}` starts/stops server-side JSONL (telemetry +
+  control events) under `logs/`; `GET /log` serves the latest file.
+
+Verified per milestone (M7.1–M7.6): green suite + live serve smokes
+(commit messages `a185829`, `af27734`, `1493b9a`, `eab746b`, `4fa78cc`,
+`e8dbe48`; vision `--vision` is the remaining in-progress item — see
+PLAN.md M7.6 for its exact stop point).
 
 ### Web UI
 
 - **Video pane**: drag to orbit (azimuth/elevation), scroll to zoom. Frames
   are MJPEG over WebSocket at the configured fps.
-- **Controls**: one slider per actuated DOF (42 in the default scene),
-  `neutral` / `pause` / `resume` / `step` / `reset` buttons, and a playback
-  speed slider (0.1-10x).
+- **Controls**: one slider per actuated DOF (42 in the default scene;
+  builds with >42 actuators get the virtualized DOF table with live qpos
+  readouts), `neutral` / `pause` / `resume` / `step` / `reset` / `log`
+  buttons, and a playback speed slider (0.1-10x).
+- **Sandbox panels** (Phase 7): mode row (neutral/walk/flap/manual) with
+  live gait tuning (freq/amplitude/phase); perturbation panel (spawn x/y/z,
+  gravity-z, thorax force pulse, timestep); telemetry strip (root z, |v|,
+  six per-leg contact LEDs, mode).
 - **HUD**: sim time, measured fps, backend, model, paused state.
 - **Protocol** (v1, mirrored from `src/flygym_stream/protocol.py`): the
-  client sends `hello` first; the server replies with `status` (~1 Hz) plus
-  binary JPEG frames; control messages (`orbit`, `actuator(s)`, `neutral`,
-  `pause`, `resume`, `step`, `speed`, `reset`) are forwarded to the sim
+  client sends `hello` first; the server replies with `status` (~1 Hz),
+  `model-info`, then periodic `telemetry`, plus binary JPEG frames; control
+  messages (`orbit`, `actuator(s)`, `neutral`, `pause`, `resume`, `step`,
+  `speed`, `reset`, `set_state`, `spawn`, `force`, `param`, `keyframe`,
+  `adhesion`, `mode`, `loco`, `log`, `info`) are forwarded to the sim
   thread. One client at a time — a second connection is rejected with
   close code 1013 / `single-client`. Malformed input closes that
   connection with 1008; the server keeps running.

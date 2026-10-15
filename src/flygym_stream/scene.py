@@ -67,11 +67,15 @@ class Scene:
         azimuth: float = DEFAULT_AZIMUTH_DEG, elevation: float = DEFAULT_ELEVATION_DEG,
         distance_mm: float = DEFAULT_DISTANCE_MM,
         home_qpos: Sequence[float] | None = None,
+        vision: object | None = None,
     ) -> None:
         self.mj_model = mj_model
         self.mj_data = mj_data
         self.actuator_ids = list(actuator_ids)
         self.camera_name = camera_name
+        # M7.6: the flygym.Simulation wrapper when the scene was built
+        # with vision (its get_raw_vision renders the eye cameras).
+        self.vision = vision
         # Root (qpos[0:7]) to restore on reset(): the spawn pose the scene
         # was built with (the neutral keyframe stores its own root pose,
         # which the spawn overrides).

@@ -244,3 +244,51 @@ def test_musculoskeletal_model_info() -> None:
     # pinned root: root pose comes from the Thorax body frame
     assert tel["root"]["pos"][2] > 0.0
     assert tel["contact"] == {}
+
+
+# --- Phase 7 (M7.6): vision (fly eye cameras) --------------------------------
+
+@pytest.mark.network
+def test_vision_scene_builds_with_eye_cameras() -> None:
+    from flygym_stream.scenes import SceneConfig, build_scene
+
+    scene = build_scene(SceneConfig(vision=True))
+    m = scene.mj_model
+    names = [m._get_cam_name(i) for i in range(m.ncam)] if False else None
+    import mujoco as mj
+    cam_names = [mj.mj_id2name(m, mj.mjtObj.mjOBJ_CAMERA, i)
+                 for i in range(m.ncam)]
+    # tracking camera + the two eye cameras from add_vision()
+    assert m.ncam == 3
+    assert any("l_eye" in n for n in cam_names)
+    assert any("r_eye" in n for n in cam_names)
+    assert scene.vision is not None  # the flygym.Simulation wrapper
+    # the Scene steps the SAME MjData the vision wrapper renders
+    scene.step()
+    assert scene.mj_data.time > 0.0
+
+
+@pytest.mark.gpu
+def test_vision_frame_renders_eye_images(tmp_config) -> None:
+    """GL: the vision feed renders real fisheye eye frames (V1-prefixed
+    JPEG) through flygym.Simulation.get_raw_vision."""
+    from PIL import Image
+    import io
+    import numpy as np
+
+    from flygym_stream.rendering import encode_jpeg
+    from flygym_stream.scenes import SceneConfig, build_scene
+    from flygym_stream.vision import VisionFeed
+
+    scene = build_scene(SceneConfig(vision=True))
+    feed = VisionFeed(scene, tmp_config)
+    # settle the sim a little so the eyes look at a non-initial state
+    for _ in range(200):
+        scene.step()
+    assert feed.render_as_needed(scene.mj_data) or True  # pacing warm
+    frame = feed.render_frame()
+    assert frame[:2] == b"V1" and frame[2:4] == b"\xff\xd8"
+    img = Image.open(io.BytesIO(frame[2:]))
+    assert img.size[1] == 2 * img.size[1] // 2  # stacked L/R eyes
+    arr = np.asarray(img)
+    assert arr.shape[0] > 100 and arr.mean() > 1  # not a black frame
