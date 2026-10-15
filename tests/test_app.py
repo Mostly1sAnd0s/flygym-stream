@@ -119,6 +119,25 @@ def test_ws_orbit_and_pause_reflected_in_status(app_env) -> None:
             assert status["paused"] is True
 
 
+def test_ws_status_reports_live_orbit_state(app_env) -> None:
+    """After an orbit control message, the periodic status reports the new
+    orbit state so the browser can adopt the server's true camera."""
+    app, sim, backend = app_env
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(HELLO)
+            recv_status(ws)  # initial status
+            ws.send_text(json.dumps(
+                {"type": "orbit", "azimuth": 45.0, "elevation": -10.0,
+                 "distance": 6000.0}))
+            wait_for(lambda: any(
+                type(m).__name__ == "Orbit" and m.azimuth == 45.0
+                for m in backend.inputs))
+            status = recv_status(ws)
+            assert status["orbit"] == {"azimuth": 45.0, "elevation": -10.0,
+                                       "distance": 6000.0}
+
+
 def test_second_client_rejected_single_client(app_env) -> None:
     app = app_env[0]
     with TestClient(app) as client:

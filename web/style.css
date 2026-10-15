@@ -47,6 +47,7 @@ main {
   border-radius: 6px;
   overflow: hidden;
   cursor: grab;
+  touch-action: none; /* let pointer events (drag/zoom) win over touch gestures */
 }
 
 #video-pane:active { cursor: grabbing; }

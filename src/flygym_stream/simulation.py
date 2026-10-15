@@ -48,6 +48,12 @@ class Backend(ABC):
     def time(self) -> float:
         """Current simulation time in seconds."""
 
+    @property
+    def orbit(self) -> Orbit:
+        """Current orbit state (the Scene is the source of truth)."""
+        azimuth, elevation, distance_mm = self._scene.orbit
+        return Orbit(azimuth, elevation, distance_mm)
+
     @abstractmethod
     def step(self, dt: float) -> None:
         """Advance one substep of ``dt`` seconds."""

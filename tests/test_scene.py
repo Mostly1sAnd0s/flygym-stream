@@ -118,6 +118,35 @@ def test_build_default_scene_neutral_reset_is_stable(fly_scene: Scene) -> None:
     assert all(abs(a - b) < 1e-6 for a, b in zip(fly_scene.mj_data.qpos, neutral_qpos))
 
 
+@pytest.mark.network
+def test_default_orbit_distance_is_scale_aware(fly_scene: Scene) -> None:
+    """The full-size NeuroMechFly is ~3 m across (wing span), not the 5 mm
+    a hardcoded 40 mm default assumed; the default orbit distance must scale
+    with the model so the initial view frames the whole fly instead of
+    sitting inside its body (drag then appears to do nothing)."""
+    az, el, dist_mm = fly_scene.orbit
+    extent_m = fly_scene.target_extent_m("nmf")
+    assert extent_m > 1.0, f"full-size fly should be metres across, got {extent_m} m"
+    assert dist_mm / 1000.0 >= 1.8 * extent_m, (
+        f"default distance {dist_mm} mm too close for a {extent_m:.1f} m fly")
+
+
+@pytest.mark.network
+def test_target_extent_filters_world_geoms(fly_scene: Scene) -> None:
+    """target_extent_m counts only geoms the prefix selects (the fly); an
+    unfiltered extent would be dominated by the 1 km ground plane."""
+    assert fly_scene.target_extent_m("nmf") < 10.0
+    assert fly_scene.target_extent_m("") > 1000.0
+
+
+@pytest.mark.network
+def test_scene_exposes_current_orbit_state(fly_scene: Scene) -> None:
+    """The orbit state (az/el deg, distance mm) is readable back so the
+    server can report it in status and the client never drifts."""
+    fly_scene.set_orbit_camera(azimuth=123.0, elevation=5.0, distance_mm=6400.0)
+    assert fly_scene.orbit == (123.0, 5.0, pytest.approx(6400.0))
+
+
 def test_model_is_built_only_in_scene_module() -> None:
     """DRY guard: the fly model is constructed in scene.py and nowhere else."""
     offenders = []

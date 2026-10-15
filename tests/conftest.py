@@ -138,6 +138,15 @@ class FakeBackend:
     def steps(self) -> int:
         return self._steps
 
+    @property
+    def orbit(self):
+        """Last orbit state applied (duck-types simulation.Backend.orbit;
+        None until the first orbit message)."""
+        for msg in reversed(self.inputs):
+            if type(msg).__name__ == "Orbit":
+                return msg
+        return None
+
     def step(self, dt: float) -> None:
         """Advance sim time by one substep of ``dt`` seconds."""
         if abs(dt - self.dt) > 1e-12:

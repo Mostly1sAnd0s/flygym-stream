@@ -34,10 +34,15 @@ const MSG = {
 };
 
 /* --- state --------------------------------------------------------------- */
+/* The orbit placeholder is only used until the first status message
+ * carries the server's true orbit state (the scale-aware default for the
+ * ~3 m full-size fly); after that the server is the source of truth until
+ * the user drags/zooms. */
 const state = {
   ws: null,
   rtc: null,
-  orbit: { azimuth: 30, elevation: -20, distance: 40 }, // deg/deg/mm
+  orbit: { azimuth: 30, elevation: -20, distance: 6400 }, // deg/deg/mm
+  orbitTouched: false,
   paused: false,
   nActuators: null,
   reconnectDelay: 1000,
@@ -132,6 +137,13 @@ function onText(msg) {
 function onStatus(s) {
   state.paused = s.paused;
   state.nActuators = s.n_actuators;
+  if (s.orbit && !state.orbitTouched) {
+    // adopt the server's true orbit (scale-aware default; a hardcoded JS
+    // default would snap the view back inside the fly on first drag)
+    state.orbit = { azimuth: s.orbit.azimuth, elevation: s.orbit.elevation,
+                    distance: s.orbit.distance };
+    updateOrbitHud();
+  }
   setHud(
     `sim ${s.sim_time.toFixed(3)} s  \u00b7  ${s.fps.toFixed(1)} fps  \u00b7  ` +
       `${s.backend}  \u00b7  ${s.model}  ${s.paused ? "\u00b7  PAUSED" : ""}`
@@ -191,6 +203,7 @@ const videoPane = $("video-pane");  // drag/zoom work over either <img> or <vide
 
 videoPane.addEventListener("pointerdown", (ev) => {
   dragging = true;
+  state.orbitTouched = true;
   dragLast = [ev.clientX, ev.clientY];
   videoPane.setPointerCapture(ev.pointerId);
 });
@@ -207,22 +220,28 @@ videoPane.addEventListener("pointermove", (ev) => {
 
 videoPane.addEventListener("pointerup", (ev) => {
   dragging = false;
-  videoPane.releasePointerCapture(ev.pointerId);
+  try { videoPane.releasePointerCapture(ev.pointerId); } catch (_) { /* ok */ }
 });
 
 videoPane.addEventListener("wheel", (ev) => {
   ev.preventDefault();
+  state.orbitTouched = true;
   state.orbit.distance = clamp(
-    state.orbit.distance * (1 + ev.deltaY * 0.001), 5, 500
+    state.orbit.distance * (1 + ev.deltaY * 0.001), 5, 50000
   );
   sendOrbitThrottled();
 }, { passive: false });
 
-function sendOrbitThrottled() {
+function updateOrbitHud() {
+  const d = state.orbit.distance;
   orbitState.textContent =
     `az ${Math.round(state.orbit.azimuth)}\u00b0 \u00b7 ` +
     `el ${Math.round(state.orbit.elevation)}\u00b0 \u00b7 ` +
-    `${state.orbit.distance.toFixed(0)} mm`;
+    (d >= 1000 ? `${(d / 1000).toFixed(1)} m` : `${d.toFixed(0)} mm`);
+}
+
+function sendOrbitThrottled() {
+  updateOrbitHud();
   const now = performance.now();
   if (now - state.orbitThrottle < 33) return; // ~30 Hz cap
   state.orbitThrottle = now;

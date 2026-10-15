@@ -65,6 +65,7 @@ class Status:  # server -> client periodic status (about 1 Hz)
     n_actuators: int
     backend: str
     model: str
+    orbit: Orbit | None = None  # live orbit state (None = unknown)
 
 
 InputMessage = (Hello | Orbit | Actuator | ActuatorSet | Neutral | Pause | Resume

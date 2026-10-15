@@ -67,6 +67,14 @@ def test_full_stack_orbit_and_actuators_change_pixels(tmp_config) -> None:
         with Image.open(io.BytesIO(frame)) as img:
             return float(np.asarray(img).mean())
 
+    def changed_frac(a: bytes, b: bytes, thresh: int = 10) -> float:
+        """Fraction of pixels differing by > thresh (whole-fly view makes
+        frame *means* insensitive to pose changes; the fly is ~1/3 of the
+        frame and the rest is background)."""
+        with Image.open(io.BytesIO(a)) as ia, Image.open(io.BytesIO(b)) as ib:
+            da, db = np.asarray(ia).astype(int), np.asarray(ib).astype(int)
+        return float((np.abs(da - db).max(axis=2) > thresh).mean())
+
     scene = build_default_scene()
     backend = make_backend(scene, tmp_config)
     renderer = OffscreenRenderer(scene, tmp_config)
@@ -82,21 +90,33 @@ def test_full_stack_orbit_and_actuators_change_pixels(tmp_config) -> None:
                 first = mean(recv_frame(ws))
                 ws.send_text(json.dumps(
                     {"type": "orbit", "azimuth": 200.0, "elevation": 10.0,
-                     "distance": 25.0}))
+                     "distance": 6000.0}))
                 wait_for(lambda: any(
                     type(m).__name__ == "Orbit" for m in backend.inputs))
                 recv_frame(ws)  # discard a frame possibly rendered pre-orbit
-                second = mean(recv_frame(ws))
+                second_img = recv_frame(ws)
+                second = mean(second_img)
+                assert abs(first - second) > 1.0, (first, second)
+                ws.send_text(json.dumps({"type": "pause"}))
+                wait_for(lambda: sim.paused)
                 ws.send_text(json.dumps(
                     {"type": "actuators", "values": [1.0] * 42}))
-                wait_for(lambda: any(
-                    type(m).__name__ == "ActuatorSet" for m in backend.inputs))
-                recv_frame(ws)  # discard a frame possibly rendered pre-set
-                third = mean(recv_frame(ws))
-                assert abs(first - second) > 1.0, (first, second)
-                assert abs(second - third) > 1.0, (second, third)
+                t0 = backend.time
+                ws.send_text(json.dumps({"type": "step", "n": 300}))
+                # the step control drains inputs first, then advances exactly
+                # 300 substeps and pushes one forced (post-pose) frame; the
+                # send loop may still be delivering an in-flight pre-step
+                # frame, so take the first frame showing the pose change
+                wait_for(lambda: backend.time >= t0 + 299 * backend.dt)
+                post = None
+                for _ in range(10):
+                    cand = recv_frame(ws)
+                    if changed_frac(second_img, cand, thresh=20) > 0.05:
+                        post = cand
+                        break
+                assert post is not None, "no post-pose frame arrived"
                 print(f"\ncontrol->pixels: {first:.1f} -> {second:.1f} (orbit)"
-                      f" -> {third:.1f} (actuators)")
+                      f" -> {changed_frac(second_img, post, thresh=20):.3f} changed (actuators)")
     finally:
         sim.stop()
         renderer.close()

@@ -108,7 +108,7 @@ Client → server (WebSocket text, JSON):
 | type | fields | meaning |
 |---|---|---|
 | `hello` | `proto: 1` | first message; triggers initial `status` |
-| `orbit` | `azimuth`, `elevation`, `distance` (deg/deg/mm) | camera orbit; target = fly position |
+| `orbit` | `azimuth`, `elevation`, `distance` (deg/deg/mm) | camera orbit; target = fly position. Default distance is scale-aware: `2.8 × target_extent_m` (the full-size NMf is ~3 m across, so a fixed mm default would park the camera inside it); `status` carries the live `orbit` so the client adopts the true view |
 | `actuator` | `index: int`, `value: float` | set one actuator ctrl |
 | `actuators` | `values: [float, ...]` | set all at once |
 | `neutral` | — | reset actuators to neutral pose |
@@ -121,7 +121,7 @@ Server → client:
 - **binary frames**: JPEG at `output_fps` (default 30), quality 80.
 - **text status** (on `hello`, then ~1 Hz): `{"type":"status","sim_time":
   float,"fps": float,"paused": bool,"n_actuators": int,"backend":"cpu"|"gpu",
-  "model":"fly"}`.
+  "model":"fly","orbit":{"azimuth","elevation","distance"}|null}`.
 
 Client video strategy (simplest that works): on each binary message,
 `img.src = URL.createObjectURL(blob)` (revoke previous). 30 fps of

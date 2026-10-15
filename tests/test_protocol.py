@@ -123,5 +123,19 @@ def test_status_encode_round_trip() -> None:
     wire = json.loads(encode_status(status))
     assert wire == {
         "type": "status", "sim_time": 1.25, "fps": 29.7, "paused": False,
-        "n_actuators": 18, "backend": "cpu", "model": "fly",
+        "n_actuators": 18, "backend": "cpu", "model": "fly", "orbit": None,
     }
+
+
+def test_status_carries_orbit_state() -> None:
+    """Status reports the live orbit state (same Orbit type as the client
+    message) so the browser adopts the server's initial view instead of
+    drifting from its own hardcoded default."""
+    orbit = Orbit(azimuth=30.0, elevation=-20.0, distance=6400.0)
+    status = Status(
+        sim_time=1.25, fps=29.7, paused=False, n_actuators=18, backend="cpu",
+        model="fly", orbit=orbit,
+    )
+    wire = json.loads(encode_status(status))
+    assert wire["orbit"] == {"azimuth": 30.0, "elevation": -20.0,
+                             "distance": 6400.0}

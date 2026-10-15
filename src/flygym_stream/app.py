@@ -77,6 +77,7 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
             paused=producer.sim.paused,
             n_actuators=producer.backend.n_actuators,
             backend=producer.backend.name, model=producer.model_name,
+            orbit=producer.backend.orbit,
         ))
 
     async def _send_loop(ws: WebSocket) -> None:
