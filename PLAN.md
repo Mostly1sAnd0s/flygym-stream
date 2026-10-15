@@ -462,9 +462,15 @@ table if tighter); `app.py` 211 → ≤ 280; `simulation.py` 358 → ≤ 450;
 protocol/app/gpu suites +≤ 100 each.
 
 **7.9 Milestones**:
-- M7.1 `scenes.py` + `SceneConfig` + CLI flags.
-- M7.2 Protocol v2 control (set_state/spawn/force/param/keyframe/
-  adhesion) + backend dispatch.
+- ~~M7.1 `scenes.py` + `SceneConfig` + CLI flags.~~ ✅ `a185829`
+- ~~M7.2 Protocol v2 control (set_state/spawn/force/param/keyframe/
+  adhesion) + backend dispatch.~~ ✅ `af27734`
+  - Impl notes: `force` injects via `xfrc_applied` (spatial, 6/body: f,τ)
+    — `qfrc_applied` is nv-length joint-space, not per-body; spawn on a
+    pinned root raises at apply time (logged; protocol is model-
+    agnostic so it cannot 1008 at decode); `param` whitelist v1 =
+    {gravity 3, timestep, margin, solref 2, solimp 5, friction 3} →
+    MjOpt `o_*` fields (bindings prefix `o_`).
 - M7.3 Locomotion (neutral/walk/flap/mode + `loco` tuning).
 - M7.4 Telemetry + model-info + JSONL logging + `GET /log`.
 - M7.5 UI sandbox (DOF table, mode row, perturbation panel, telemetry
