@@ -486,19 +486,40 @@ protocol/app/gpu suites +≤ 100 each.
       (c_thorax/c_abdomen4 geoms) is in contact at rest.
     - Standing pose (grid search): ctrl offsets coxa-pitch +0.4,
       femur-pitch +1.4, tibia-pitch −0.4 (all legs) → root ~1.52 m, no
-      body contact, "stable at rest" in the ORIGINAL measurement. NOT
-      REPRODUCED in re-probes (2026-07-21, simplified + fullsize):
-      from the 0.8 m spawn the offsets do not lift the fly (NoSlip pins
-      it grounded — `neutral+OFF` settles at root 0.52 m, still
-      flailing at 3 s; `zero+OFF` fully pinned, |qvel|=0); a
-      standing-INITIALIZED state (joints+ctrl at neutral+offset) fell to
-      0.5 m and kept moving (that probe's standing height was
-      wingtip-contaminated — min over ALL fly geoms; wings reach −1.23 m
-      below the root, foot-geoms-only is the correct measure).
-      **OPEN RESEARCH** until re-derived: foot-geom-only height,
-      initialized-standing start, ≥10 s settle, FULLSIZE mesh. Also
-      unknown: how the original grid search measured (likely
-      initialized-standing, quasi-static).
+      body contact, "stable at rest" in the ORIGINAL measurement.
+      **CONCLUDED 2026-07-21: NOT reproducible — no passive standing
+      pose holds in this model.** Full-size evidence chain (corrected
+      probe recipe: foot-geom-only standing height from the 30 tarsus
+      geoms, initialized-standing start, COM x centered on the stance,
+      5 cm clearance drop, ≥10 s settle):
+      * The keyframe is dorsal-up (wing geoms z 2.229 > thorax 2.085,
+        identity quat) — the "prone" default is the belly-down landing
+        from the 0.8 m spawn; a 180°-about-x "supine" spawn settles
+        quieter (|v_root| ~0.04 vs ~0.23 m/s) but is the truly
+        upside-down pose (wings on the ground).
+      * Documented offsets: from the 0.8 m spawn the fly never stands
+        (NoSlip pins it; `neutral+OFF` settles at root 0.52 m, flailing;
+        `zero+OFF` fully pinned, |qvel|=0).
+      * Initialized-standing (feet on ground at the correct 2.23 m root
+        height, COM centered on the stance): tumbles — root drifts 2.7 m,
+        body rolls 58° head-down onto the ground; the stance's feet all
+        sit head-side (−x) of the root so the COM is behind the support
+        polygon before centering, and the unactuated coxa-yaw/roll DOFs
+        give zero roll stiffness (laterally neutral — no restoring
+        force).
+      * Actuating ALL 48 leg DOFs (`LEGS_ONLY`, 66 actuators) changes
+        nothing: same 0.5273 m endpoint, worse flailing. A pinned-root
+        static test shows the pitch joints still drift off target
+        (error ∝ femur offset after 3 s).
+      * Model mass is 0.001 kg total (biological scale) — actuator force
+        limits (±30) are not the constraint; the stance geometry is.
+      * The default rest still creep-rotates (|v_root| 0.1–0.33 m/s at
+        10 s; does not decay).
+      Next step (research, not service work): a closed-loop righting/
+      stance controller (contact-sensor feedback on the 6 leg contact
+      sensors + per-DOF ctrl) that keeps the COM over the stance; the
+      sandbox (set_state + per-DOF ctrl + telemetry + force) is the
+      toolset. A quasi-static gait builds on the same controller.
     - The v1 open-loop tripod gait does **not** walk quasi-statically:
       from prone it produces a righting kick (~300 mm, the headline
       test's >50 mm in 2 sim s passes with huge margin); from the

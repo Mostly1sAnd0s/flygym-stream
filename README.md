@@ -115,14 +115,17 @@ JSON protocol (protocol version still 1; all Phase 7 messages are additive):
 - **Built-in locomotion**: `mode {neutral|walk|flap|manual}` + live
   `loco {freq,amplitude,phase}`. `walk` is a tripod six-leg gait (pure
   function of sim time; offsets from a baseline captured on mode entry);
-  `flap` needs `--dof all` (wing actuators). Note (verified): the neutral
-  keyframe stores an upright pose, but the fly falls from the 0.8 m spawn
-  and rests prone on the ground (slow creep-rotation), so `walk` from rest
-  produces a righting kick (the headline test: >50 mm in 2 sim s); a true
-  standing rest pose is open research (grid-search ctrl offsets coxa
-  +0.4 / femur +1.4 / tibia -0.4 were the candidate, but re-probes could
-  not reproduce a holding standing pose — see PLAN.md M7.3 notes and
-  HANDOFF.md).
+  `flap` needs `--dof all` (wing actuators; the UI disables the flap
+  button when the build has no wing actuators). Note (verified): the
+  neutral keyframe stores an upright (dorsal-up) pose, but the fly falls
+  from the 0.8 m spawn and rests on the ground with a slow creep-rotation,
+  so `walk` from rest produces a righting kick (the headline test: >50 mm
+  in 2 sim s). A passive standing rest pose is **not achievable** in this
+  model (research-concluded 2026-07-21: the stance is laterally neutral —
+  unactuated roll DOFs give no restoring force — and the COM cannot be
+  held over the support polygon; see the evidence chain in PLAN.md M7.3
+  notes and HANDOFF.md); the next step is a closed-loop righting/
+  stance controller on the built-in contact sensors.
 - **Telemetry** (`--telemetry-hz`, default 10): `t, qpos[133], qvel[132],
   ctrl[u], root{pos,quat}, contact{6 legs}, paused, mode` from MjData;
   `model-info` after hello (units, joints, actuators, sites, cameras,
