@@ -13,8 +13,8 @@
   </header>
   <main>
     <section id="video-pane" title="Drag to orbit, scroll to zoom">
-      <img id="video" alt="live fly simulation"/>
-      <video id="video-webrtc" autoplay playsinline muted
+      <img id="video" alt="live fly simulation" draggable="false"/>
+      <video id="video-webrtc" autoplay playsinline muted draggable="false"
              style="display:none"></video>
       <div id="video-overlay"></div>
     </section>
@@ -35,7 +35,7 @@
         <label for="step-n">step n</label>
         <input id="step-n" type="number" min="1" max="100000" value="30"/>
       </div>
-      <div id="orbit-state" class="row">az 30&deg; &middot; el &minus;20&deg; &middot; 40 mm</div>
+      <div id="orbit-state" class="row">az &mdash; &middot; el &mdash; &middot; &mdash;</div>
       <div id="sliders" class="sliders"></div>
       <p class="hint">
         Drag the video to orbit, scroll to zoom. One slider per actuated

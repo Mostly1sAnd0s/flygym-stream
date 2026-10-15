@@ -202,6 +202,7 @@ let dragLast = null;
 const videoPane = $("video-pane");  // drag/zoom work over either <img> or <video>
 
 videoPane.addEventListener("pointerdown", (ev) => {
+  ev.preventDefault(); // stop the native <img> drag ghost + text selection
   dragging = true;
   state.orbitTouched = true;
   dragLast = [ev.clientX, ev.clientY];

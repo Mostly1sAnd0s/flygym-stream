@@ -25,9 +25,10 @@ from flygym.utils.math import Rotation3D
 # across (wing span); the spawn height is in MuJoCo SI units (metres).
 DEFAULT_AZIMUTH_DEG, DEFAULT_ELEVATION_DEG = 30.0, -20.0
 # Default orbit distance = FACTOR x the fly's extent from the target site:
-# at the free camera's 45-degree FOV that frames the whole fly with margin
-# (a fixed distance is wrong because the model scale is not 1:1 biological).
-DEFAULT_ORBIT_DISTANCE_FACTOR = 2.8
+# at the free camera's 45-degree FOV that frames the whole fly with generous
+# margin (a fixed distance is wrong because the model scale is not 1:1
+# biological; the full-size NMf is ~3 m across).
+DEFAULT_ORBIT_DISTANCE_FACTOR = 3.5
 DEFAULT_DISTANCE_MM = 40.0   # generic Scene fallback (tiny-model tests)
 MIN_ORBIT_DISTANCE_M = 0.005      # MuJoCo is SI: 5 mm hard floor
 MAX_ORBIT_ELEVATION_DEG = 89.0    # avoid the gimbal singularity at +/-90
