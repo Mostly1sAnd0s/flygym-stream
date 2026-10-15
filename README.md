@@ -66,7 +66,9 @@ uv run python -m flygym_stream.cli serve --bind 127.0.0.1 --port 8765
 ```
 
 Then open <http://127.0.0.1:8765> in a browser
-(`http://127.0.0.1:8765/?webrtc` for the WebRTC transport).
+(`http://127.0.0.1:8765/?webrtc` for the WebRTC transport). For LAN
+access on a headless server: `serve --bind 0.0.0.0 --insecure`, then
+open `http://<server-LAN-IP>:8765` (see "Accessing across the LAN").
 
 ### Phase 6 stretch status
 
@@ -101,20 +103,39 @@ Then open <http://127.0.0.1:8765> in a browser
   close code 1013 / `single-client`. Malformed input closes that
   connection with 1008; the server keeps running.
 
-The service binds `127.0.0.1` only (binding `0.0.0.0` requires the explicit
-`--insecure` flag). From a client machine tunnel first:
+### Accessing across the LAN (headless server)
 
-```bash
-ssh -L 8765:127.0.0.1:8765 user@server
-# then open http://127.0.0.1:8765 in the browser
-```
+Two options:
+
+1. **Direct LAN access** — bind all interfaces (the flag is required
+   because this is an unauthenticated service):
+
+   ```bash
+   uv run python -m flygym_stream.cli serve --bind 0.0.0.0 --insecure --port 8765
+   ```
+
+   then open `http://<server-LAN-IP>:8765` (e.g. `http://172.16.109.63:8765`;
+   find the IP with `ip -4 addr`). Note: the service has **no auth or TLS**
+   and accepts one client at a time, so anyone on the LAN can connect and
+   drive the simulation. For anything beyond a trusted LAN, use option 2.
+   (No firewall is active by default on this host; if you enable `ufw`,
+   allow the port: `sudo ufw allow 8765/tcp`.)
+
+2. **SSH tunnel** (safer — stays bound to `127.0.0.1`):
+
+   ```bash
+   ssh -L 8765:127.0.0.1:8765 user@server
+   # then open http://127.0.0.1:8765 in the browser
+   ```
 
 Tailscale works as an alternative to the SSH tunnel.
 
 ### systemd (optional)
 
 `deploy/flygym-stream.service` runs the service under systemd (logs go to
-the journal: `journalctl -u flygym-stream -f`):
+the journal: `journalctl -u flygym-stream -f`). It binds `0.0.0.0` with
+`--insecure` for LAN access — edit `ExecStart` back to
+`--bind 127.0.0.1` (drop `--insecure`) if you'd rather tunnel:
 
 ```bash
 sudo cp deploy/flygym-stream.service /etc/systemd/system/

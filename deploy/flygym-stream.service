@@ -9,7 +9,7 @@ User=adam
 WorkingDirectory=/home/adam/neurofly/flygym-stream
 Environment=MUJOCO_GL=egl
 Environment=PYOPENGL_PLATFORM=egl
-ExecStart=/home/adam/neurofly/flygym-stream/.venv/bin/python -m flygym_stream.cli serve --bind 127.0.0.1 --port 8765
+ExecStart=/home/adam/neurofly/flygym-stream/.venv/bin/python -m flygym_stream.cli serve --bind 0.0.0.0 --insecure --port 8765
 Restart=on-failure
 RestartSec=2
 # --- hardening (safe for this workload) ---
