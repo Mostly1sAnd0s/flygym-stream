@@ -215,7 +215,9 @@ videoPane.addEventListener("pointermove", (ev) => {
   const dy = ev.clientY - dragLast[1];
   dragLast = [ev.clientX, ev.clientY];
   state.orbit.azimuth -= dx * 0.4;
-  state.orbit.elevation = clamp(state.orbit.elevation + dy * 0.4, -89, 89);
+  // camera follows the mouse (MuJoCo viewer convention): drag up -> camera
+  // rises (elevation up); note dy is positive for a downward mouse move
+  state.orbit.elevation = clamp(state.orbit.elevation - dy * 0.4, -89, 89);
   sendOrbitThrottled();
 });
 
