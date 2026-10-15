@@ -479,12 +479,26 @@ protocol/app/gpu suites +≤ 100 each.
     wings couple; the "antiphase" plan wording was a plan bug).
   - Verified gait facts (default scene, 2026-10-15):
     - The fly faces **−x** (head x < thorax x by ~20 mm).
-    - The `neutral` keyframe pose is **prone**: at rest the body
-      (c_thorax/c_abdomen4 geoms) lies on the ground, legs folded; the
-      fly falls from the 0.8 m spawn and is at rest within ~0.3 sim s.
-    - A statically stable **standing pose** exists (grid search):
-      ctrl offsets coxa-pitch +0.4, femur-pitch +1.4, tibia-pitch −0.4
-      (all legs) → root at ~1.52 m, no body contact, stable at rest.
+    - The `neutral` keyframe stores an **upright** pose (root quat
+      identity, z=2.1 m); the **prone** appearance the service shows is
+      the spawn overwrite — the fly falls from 0.8 m and rests on the
+      ground with legs folded, slowly creep-rotating (NoSlip). The body
+      (c_thorax/c_abdomen4 geoms) is in contact at rest.
+    - Standing pose (grid search): ctrl offsets coxa-pitch +0.4,
+      femur-pitch +1.4, tibia-pitch −0.4 (all legs) → root ~1.52 m, no
+      body contact, "stable at rest" in the ORIGINAL measurement. NOT
+      REPRODUCED in re-probes (2026-07-21, simplified + fullsize):
+      from the 0.8 m spawn the offsets do not lift the fly (NoSlip pins
+      it grounded — `neutral+OFF` settles at root 0.52 m, still
+      flailing at 3 s; `zero+OFF` fully pinned, |qvel|=0); a
+      standing-INITIALIZED state (joints+ctrl at neutral+offset) fell to
+      0.5 m and kept moving (that probe's standing height was
+      wingtip-contaminated — min over ALL fly geoms; wings reach −1.23 m
+      below the root, foot-geoms-only is the correct measure).
+      **OPEN RESEARCH** until re-derived: foot-geom-only height,
+      initialized-standing start, ≥10 s settle, FULLSIZE mesh. Also
+      unknown: how the original grid search measured (likely
+      initialized-standing, quasi-static).
     - The v1 open-loop tripod gait does **not** walk quasi-statically:
       from prone it produces a righting kick (~300 mm, the headline
       test's >50 mm in 2 sim s passes with huge margin); from the

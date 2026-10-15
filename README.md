@@ -116,11 +116,13 @@ JSON protocol (protocol version still 1; all Phase 7 messages are additive):
   `loco {freq,amplitude,phase}`. `walk` is a tripod six-leg gait (pure
   function of sim time; offsets from a baseline captured on mode entry);
   `flap` needs `--dof all` (wing actuators). Note (verified): the neutral
-  keyframe pose is prone, so `walk` from rest produces a righting kick
-  (the headline test: >50 mm in 2 sim s); building a quasi-static gait is
-  the open research task the sandbox exists for (standing-pose ctrl
-  offsets coxa +0.4 / femur +1.4 / tibia -0.4 are known from the grid
-  search, PLAN.md M7.3 notes).
+  keyframe stores an upright pose, but the fly falls from the 0.8 m spawn
+  and rests prone on the ground (slow creep-rotation), so `walk` from rest
+  produces a righting kick (the headline test: >50 mm in 2 sim s); a true
+  standing rest pose is open research (grid-search ctrl offsets coxa
+  +0.4 / femur +1.4 / tibia -0.4 were the candidate, but re-probes could
+  not reproduce a holding standing pose — see PLAN.md M7.3 notes and
+  HANDOFF.md).
 - **Telemetry** (`--telemetry-hz`, default 10): `t, qpos[133], qvel[132],
   ctrl[u], root{pos,quat}, contact{6 legs}, paused, mode` from MjData;
   `model-info` after hello (units, joints, actuators, sites, cameras,
