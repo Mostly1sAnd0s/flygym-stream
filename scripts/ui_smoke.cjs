@@ -14,6 +14,7 @@ const path = require("path");
 const root = path.join(__dirname, "..");
 const appJs = fs.readFileSync(path.join(root, "web", "app.js"), "utf8");
 const sandboxJs = fs.readFileSync(path.join(root, "web", "app_sandbox.js"), "utf8");
+const indexHtml = fs.readFileSync(path.join(root, "web", "index.html"), "utf8");
 
 /* --- minimal fake DOM ------------------------------------------------------ */
 class El {
@@ -121,9 +122,14 @@ function check(cond, what) {
   else { failures += 1; console.error(` FAIL ${what}`); }
 }
 
+/* Static markup: the mode row is the SINGLE neutral (the duplicate
+   top-row #btn-neutral button was the 2026-07-21 user bug). */
+check(!indexHtml.includes('btn-neutral'),
+      "index.html has no duplicate top-row neutral button (mode row is the single neutral)");
+
 /* --- load both UI files in one scope, then run the harness ------------------- */
 const harness = `
-;(async function () {
+const __harness = (async function () {
   const $ = (id) => document.getElementById(id);
   /* mode buttons need the class before Sandbox wires them */
   ["neutral", "walk", "flap", "manual"].forEach((m) => {
@@ -219,6 +225,15 @@ const harness = `
         === JSON.stringify({ type: "mode", value: "walk" }),
         "mode walk message shape");
 
+  /* flap gating: the model-info above has no wing-pitch actuators, so
+     the flap mode button must be disabled (server would reject it). */
+  const flapBtn0 = document.querySelectorAll(".mode-btn")
+    .find((b) => b.dataset.mode === "flap");
+  check(flapBtn0 && flapBtn0.disabled === true,
+        "flap mode button disabled without wing actuators");
+  check(flapBtn0 && /wing/i.test(flapBtn0.title || ""),
+        "disabled flap button explains why (title mentions wings)");
+
   /* spawn / param / loco / force / log message shapes */
   $("spawn-x").value = "100"; $("spawn-y").value = "-20";
   $("spawn-z").value = "900";
@@ -280,7 +295,24 @@ const harness = `
         "bare JPEG frame goes to the main <img>");
   check(els.get("vision").src === visionSrc,
         "bare JPEG leaves the vision pane untouched");
+
+  /* wing actuators present (--dof all) -> flap enabled again: re-init
+     the sandbox with a model-info that has the two wing-pitch DOFs. */
+  onText({ type: "model-info", ...modelInfo, nu: N + 2,
+           actuators: modelInfo.actuators.concat([
+             { id: N, name: "nmf/c_thorax-l_wing-pitch-position",
+               gaintype: 0, biastype: 1, dyntype: 0, joint: 0, tendon: null,
+               range: [-3.14, 3.14] },
+             { id: N + 1, name: "nmf/c_thorax-r_wing-pitch-position",
+               gaintype: 0, biastype: 1, dyntype: 0, joint: 1, tendon: null,
+               range: [-3.14, 3.14] },
+           ]) });
+  const flapBtn1 = document.querySelectorAll(".mode-btn")
+    .find((b) => b.dataset.mode === "flap");
+  check(flapBtn1 && flapBtn1.disabled === false,
+        "flap mode button enabled when wing actuators are present");
 })();
+return __harness;
 `;
 
 /* Inject the harness helpers (check/els/modelInfo) into the scope. */

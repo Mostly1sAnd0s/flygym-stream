@@ -29,6 +29,7 @@ window.Sandbox = (() => {
     windowEnd: -1,
     n: 0,                // actuator count
     tableMode: false,    // true when the DOF table replaces the sliders
+    wingsPresent: false, // true when the model has wing-pitch actuators
   };
 
   /* --- init ---------------------------------------------------------------- */
@@ -44,6 +45,9 @@ window.Sandbox = (() => {
     state.names = info.actuators.map(
       (a) => a.name.replace(/^.*\//, "").replace(/-position$/, ""));
     state.ranges = info.actuators.map((a) => a.range);
+    // flap mode needs wing-pitch actuators (--dof all); without them the
+    // button is disabled (the server rejects the mode anyway).
+    state.wingsPresent = info.actuators.some((a) => /wing-pitch/.test(a.name));
 
     // Large DOF builds (126+) get the virtualized table; the classic
     // 42-slider list is left untouched for the default scene (PLAN M7.5).
@@ -198,6 +202,17 @@ window.Sandbox = (() => {
       });
     });
 
+    // Gate flap on wing-actuator presence (legs-only builds: the server
+    // rejects the mode; the button should say so up front).
+    const flapBtn = Array.from(document.querySelectorAll(".mode-btn"))
+      .find((b) => b.dataset.mode === "flap");
+    if (flapBtn) {
+      flapBtn.disabled = !state.wingsPresent;
+      flapBtn.title = state.wingsPresent
+        ? "Flap both wings in phase (needs --dof all)"
+        : "Unavailable on this build: no wing actuators (serve with --dof all)";
+    }
+
     const locoFields = { "loco-freq": "freq", "loco-amp": "amplitude",
                          "loco-phase": "phase" };
     for (const [id, field] of Object.entries(locoFields)) {
@@ -243,8 +258,8 @@ window.Sandbox = (() => {
     });
 
     // A neutral/reset drops client ctrl authority: let the server (via
-    // telemetry) be the source of truth again.
-    $("btn-neutral").addEventListener("click", () => state.dirty.clear());
+    // telemetry) be the source of truth again. (The mode-row neutral
+    // button already clears dirty in its click handler above.)
     $("btn-reset").addEventListener("click", () => state.dirty.clear());
   }
 

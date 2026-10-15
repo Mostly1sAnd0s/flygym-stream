@@ -293,7 +293,6 @@ function wire(id, handler) {
   $(id).addEventListener("click", handler);
 }
 
-wire("btn-neutral", () => send(MSG.neutral()));
 wire("btn-pause", () => send(MSG.pause()));
 wire("btn-resume", () => send(MSG.resume()));
 wire("btn-step", () => send(MSG.step(Number($("step-n").value))));

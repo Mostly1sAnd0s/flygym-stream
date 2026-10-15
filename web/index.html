@@ -33,7 +33,6 @@
     </section>
     <aside id="controls">
       <div class="row">
-        <button id="btn-neutral" title="Reset actuators to neutral pose">neutral</button>
         <button id="btn-pause" title="Freeze the simulation">pause</button>
         <button id="btn-resume" title="Unfreeze the simulation">resume</button>
         <button id="btn-step" title="Advance 30 substeps (while paused)">step</button>
@@ -42,7 +41,8 @@
                 events); the latest file is served at /log">log</button>
       </div>
       <div id="mode-row" class="row">
-        <button class="mode-btn active" data-mode="neutral">neutral</button>
+        <button class="mode-btn active" data-mode="neutral"
+                title="Restore the neutral keyframe pose (drops client ctrl edits)">neutral</button>
         <button class="mode-btn" data-mode="walk">walk</button>
         <button class="mode-btn" data-mode="flap">flap</button>
         <button class="mode-btn" data-mode="manual">manual</button>

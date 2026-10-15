@@ -142,9 +142,11 @@ record).
   are MJPEG over WebSocket at the configured fps.
 - **Controls**: one slider per actuated DOF (42 in the default scene;
   builds with >42 actuators get the virtualized DOF table with live qpos
-  readouts), `neutral` / `pause` / `resume` / `step` / `reset` / `log`
-  buttons, and a playback speed slider (0.1-10x).
-- **Sandbox panels** (Phase 7): mode row (neutral/walk/flap/manual) with
+  readouts), `pause` / `resume` / `step` / `reset` / `log` buttons, and a
+  playback speed slider (0.1-10x). The neutral pose is the mode row's
+  `neutral` button (restores the neutral keyframe ctrl).
+- **Sandbox panels** (Phase 7): mode row (neutral/walk/flap/manual — flap
+  is disabled unless the build has wing actuators, i.e. `--dof all`) with
   live gait tuning (freq/amplitude/phase); perturbation panel (spawn x/y/z,
   gravity-z, thorax force pulse, timestep); telemetry strip (root z, |v|,
   six per-leg contact LEDs, mode); fly-eye vision overlay (top-right, when
