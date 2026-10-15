@@ -233,10 +233,12 @@ def test_fly_forward_and_heading_follow_the_root() -> None:
     assert s.fly_heading_deg() == pytest.approx(90.0)
 
 
-def test_viewcube_snaps_orbit_relative_to_the_fly_heading() -> None:
+def test_viewcube_snaps_to_world_directions() -> None:
     s = make_cam_tiny_scene()
     s.set_orbit_camera(azimuth=30.0, elevation=-20.0, distance_mm=200.0)
-    # At rest the fly faces +x (heading 0): viewcube directions are world.
+    # The viewcube faces are WORLD directions (front = +x, the direction
+    # the fly faces at rest; left = +y), so the cube tracks the camera,
+    # never the fly: the snaps do not move when the fly turns.
     s.set_orbit_view("front")
     assert s.camera_mode == "orbit"
     assert s.orbit[0] == pytest.approx(0.0)
@@ -245,7 +247,7 @@ def test_viewcube_snaps_orbit_relative_to_the_fly_heading() -> None:
     s.set_orbit_view("back")
     assert s.orbit[0] == pytest.approx(180.0)
     s.set_orbit_view("left")
-    assert s.orbit[0] == pytest.approx(90.0)   # camera on the fly's left
+    assert s.orbit[0] == pytest.approx(90.0)   # camera on the +y side
     s.set_orbit_view("right")
     assert s.orbit[0] == pytest.approx(-90.0)
     s.set_orbit_view("top")
@@ -253,30 +255,34 @@ def test_viewcube_snaps_orbit_relative_to_the_fly_heading() -> None:
     assert s.orbit[1] == pytest.approx(scene_mod.MAX_ORBIT_ELEVATION_DEG)
     s.set_orbit_view("bottom")
     assert s.orbit[1] == pytest.approx(-scene_mod.MAX_ORBIT_ELEVATION_DEG)
-    # Fly-relative: rotate the root 90 deg (heading 90), front now faces +y.
+    # Fly turns 90 deg (heading 90): the world snaps are unchanged.
     s.mj_data.qpos[3:7] = [math.cos(math.pi / 4), 0.0, 0.0,
                            math.sin(math.pi / 4)]
     mj.mj_forward(s.mj_model, s.mj_data)
     s.set_orbit_view("front")
-    assert s.orbit[0] == pytest.approx(90.0)
+    assert s.orbit[0] == pytest.approx(0.0)
 
 
-def test_first_person_camera_sits_on_top_of_head_looking_forward() -> None:
+def test_first_person_camera_hovers_above_the_centroid_looking_forward() -> None:
     s = make_cam_tiny_scene()
     s.set_camera_mode("first")
     assert s.camera_mode == "first"
     cam = mj.MjvCamera()
     s.update_mjv_camera(cam)
+    c = s.mj_data.qpos[0:3].copy()  # free root = the centroid
     head = s.mj_data.xpos[mj.mj_name2id(
         s.mj_model, mj.mjtObj.mjOBJ_BODY, "Head")]
     pos = cam_pos(cam)
     look = np.asarray(cam.lookat, dtype=float)
-    # Looking well ahead of the head, along +x (the fly's forward).
-    assert look[0] > head[0] + 0.5 and abs(look[1] - head[1]) < 1e-6
-    # The camera itself is at the top of the head: laterally at the head,
-    # above it by the head geom radius (0.1 in this model).
-    assert abs(pos[0] - head[0]) < 1e-6 and abs(pos[1] - head[1]) < 1e-6
-    assert pos[2] == pytest.approx(head[2] + 0.1, abs=1e-6)
+    # Directly above the centroid (not the head), at the margin-scaled head
+    # clearance: the head-top is head z + 0.1 (the head sphere size).
+    expected_h = scene_mod.Scene.FIRST_PERSON_HEAD_MARGIN * (head[2] + 0.1 - c[2])
+    assert abs(pos[0] - c[0]) < 1e-6 and abs(pos[1] - c[1]) < 1e-6
+    assert pos[2] == pytest.approx(c[2] + expected_h, abs=1e-6)
+    assert pos[2] > head[2] + 0.1        # clears the head-top (not inside it)
+    # Level look (same height) along +x (the fly's forward).
+    assert look[2] == pytest.approx(pos[2], abs=1e-6)
+    assert look[0] > pos[0] + 0.5 and abs(look[1] - pos[1]) < 1e-6
 
 
 def test_first_person_camera_follows_a_moving_fly() -> None:
@@ -292,30 +298,38 @@ def test_first_person_camera_follows_a_moving_fly() -> None:
     assert np.allclose(delta, [1.0, 2.0, 0.0], atol=1e-6)
 
 
-def test_third_person_camera_trails_behind_and_above() -> None:
+def test_third_person_camera_trails_30_deg_behind_and_above() -> None:
     s = make_cam_tiny_scene()
     s.set_camera_mode("third")
     cam = mj.MjvCamera()
     s.update_mjv_camera(cam)
-    head = s.mj_data.xpos[mj.mj_name2id(
-        s.mj_model, mj.mjtObj.mjOBJ_BODY, "Head")]
+    c = s.mj_data.qpos[0:3].copy()  # free root = the centroid
     pos = cam_pos(cam)
     look = np.asarray(cam.lookat, dtype=float)
-    assert pos[0] < head[0]          # behind the head (fly faces +x)
-    assert pos[2] > head[2]          # ... and above it
-    assert look[0] > head[0]         # looking forward, past the head
+    assert pos[0] < c[0]             # behind the fly (it faces +x)
+    assert pos[2] > c[2]             # ... and above it
+    assert np.allclose(look, c, atol=1e-6)  # looking at the centroid
+    # 30 deg above the horizontal: elevation of pos relative to the centroid.
+    v = np.asarray(pos) - c
+    elev = math.degrees(math.asin(v[2] / np.linalg.norm(v)))
+    assert elev == pytest.approx(30.0, abs=1e-6)
 
 
 def test_orbit_mode_captures_the_body_view_on_exit() -> None:
-    """Switching a body view back to orbit adopts the current effective
-    camera as the stored orbit: the view continues without a jump."""
+    """Switching a body view back to orbit adopts the camera's position
+    relative to the fly as the stored orbit: the view continues without a
+    jump (a 1st-person capture is floored at half the extent)."""
     s = make_cam_tiny_scene()
     s.set_camera_mode("first")
-    az, el, dist = s.orbit  # effective body-view camera
+    az, el, dist = s.orbit  # effective body-view camera (1st: el 90 straight above)
     s.set_camera_mode("orbit")
     assert s.camera_mode == "orbit"
-    assert s.orbit == (pytest.approx(az), pytest.approx(el),
-                       pytest.approx(dist))
+    assert s.orbit[0] == pytest.approx(az)  # az = the heading the view looks along
+    # el clamps into the orbit range (90 -> 89); the tiny model's extent is
+    # 0.3 m, so the distance floors at 0.15 m (the 1st-person camera sits
+    # only ~0.12 m from the centroid).
+    assert s.orbit[1] == pytest.approx(min(el, scene_mod.MAX_ORBIT_ELEVATION_DEG))
+    assert s.orbit[2] == pytest.approx(max(dist, 0.5 * 0.3 * 1000.0))
 
 
 def test_set_orbit_view_switches_back_to_orbit_mode() -> None:
@@ -403,31 +417,36 @@ def test_scene_exposes_current_orbit_state(fly_scene: Scene) -> None:
 @pytest.mark.network
 def test_body_view_cameras_frame_the_real_fly(fly_scene: Scene) -> None:
     """On the real fly the body-view cameras frame the animal: 1st person
-    sits on top of the head looking forward (+x at rest, rostrum leads);
-    3rd person trails behind and above, looking ahead."""
+    hovers above the centroid (clearing the head) looking level along the
+    heading (+x at rest, rostrum leads); 3rd person trails 30 deg above the
+    horizontal, behind, looking at the centroid. Assertions use the rendered
+    camera (update_mjv_camera): the effective_camera readout is the
+    status/viewcube parameterisation, not the render."""
     s = fly_scene
     head = s.mj_data.xpos[mj.mj_name2id(
         s.mj_model, mj.mjtObj.mjOBJ_BODY, "nmf/c_head")].copy()
+    c = s.mj_data.qpos[0:3].copy()
     s.set_camera_mode("first")
-    az, el, dist, look = s.effective_camera()
-    look = np.asarray(look)
-    off = dist * np.array([math.cos(math.radians(el)) * math.cos(math.radians(az)),
-                           math.cos(math.radians(el)) * math.sin(math.radians(az)),
-                           math.sin(math.radians(el))])
-    assert look[0] > head[0] + 0.5            # well ahead of the head
-    pos = look + off
-    assert pos[2] > head[2] + 0.2             # above the head center
-    assert abs(pos[0] - head[0]) < 0.5        # laterally at the head
+    cam = mj.MjvCamera()
+    s.update_mjv_camera(cam)
+    pos = cam_pos(cam)
+    look = np.asarray(cam.lookat, dtype=float)
+    assert abs(pos[0] - c[0]) < 1e-6 and abs(pos[1] - c[1]) < 1e-6  # above centroid
+    assert pos[2] > head[2] + 0.2             # clears the head (not inside it)
+    assert look[0] > pos[0] + 0.5             # level, looking forward (+x)
+    assert abs(look[2] - pos[2]) < 1e-6       # ... and stays level
     s.set_camera_mode("third")
-    az, el, dist, look = s.effective_camera()
+    az, el, dist, look = s.effective_camera()  # status readout: 30 deg behind
     look = np.asarray(look)
-    off = dist * np.array([math.cos(math.radians(el)) * math.cos(math.radians(az)),
-                           math.cos(math.radians(el)) * math.sin(math.radians(az)),
-                           math.sin(math.radians(el))])
-    pos = look + off
-    assert pos[0] < head[0] - 0.5             # behind the head (fly faces +x)
-    assert pos[2] > head[2]                   # ... and above
-    assert look[0] > head[0]                  # looking ahead of the head
+    assert np.allclose(look, c, atol=1e-6)    # ... at the centroid
+    # behind the fly (faces +x): azimuth == 180 mod 360 (may read -180)
+    assert math.cos(math.radians(az)) == pytest.approx(-1.0, abs=1e-3)
+    assert abs(math.sin(math.radians(az))) < 1e-3
+    assert el == pytest.approx(30.0, abs=1e-3)  # 30 deg above the horizontal
+    cam = mj.MjvCamera()  # and the rendered camera matches that placement
+    s.update_mjv_camera(cam)
+    pos = cam_pos(cam)
+    assert pos[0] < c[0] - 1.0 and pos[2] > c[2] + 0.5
     s.set_camera_mode("orbit")  # leave the fixture in a sane view
 
 

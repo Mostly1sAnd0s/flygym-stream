@@ -23,16 +23,16 @@
     </span>
   </div>
   <main>
-    <section id="video-pane" title="Drag to orbit, scroll to zoom; the viewcube
-               snaps the orbit to a side of the fly (front = where it faces)">
+    <section id="video-pane" title="Drag to orbit, scroll to zoom; the
+               viewcube (top right) snaps the orbit to a world direction">
       <img id="video" alt="live fly simulation" draggable="false"/>
       <video id="video-webrtc" autoplay playsinline muted draggable="false"
              style="display:none"></video>
       <img id="vision" alt="fly vision (eye cameras)" class="hidden"
            draggable="false" title="Fly's own eyes (serve --vision)"/>
-      <div id="viewcube" title="Viewcube: click a face to aim the orbit camera
-           at that side of the fly (front = where it faces; the cube tracks
-           the live camera). Dragging the video switches back to orbit.">
+      <div id="viewcube" title="Viewcube: click a face to move the orbit
+           camera to that side (world directions: front = +x, where the fly
+           faces at rest; left = +y). The cube tracks the live camera.">
         <div id="cube" class="cube">
           <div class="face" id="vc-front" data-view="front">front</div>
           <div class="face" id="vc-back" data-view="back">back</div>

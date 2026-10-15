@@ -169,7 +169,7 @@ const __harness = (async function () {
   /* --- M7.7 camera: mode row + viewcube ----------------------------------- */
   check(els.get("cube").style.transform
         === "rotateX(20deg) rotateY(30deg)",
-        "viewcube tracks the camera (az 30, el -20, heading 0); got "
+        "viewcube tracks the camera (az 30, el -20); got "
         + els.get("cube").style.transform);
   check(els.get("orbit-state").textContent.indexOf("cam orbit") === 0,
         "orbit HUD reports the camera mode");
@@ -260,16 +260,19 @@ const __harness = (async function () {
         "untouched slider resynced from telemetry (got " +
         (row1 && row1._val.textContent) + ")");
 
-  /* M7.7: the fly's world heading (root quat) re-aims the viewcube */
+  /* M7.7: the viewcube tracks the CAMERA, not the fly — a fly heading
+     change in telemetry leaves the cube transform untouched (the old
+     fly-relative cube shook and moved while the fly moved). */
+  const cubeBefore = els.get("cube").style.transform;
   window.Sandbox.onTelemetry({
     t: 0.3, qpos, qvel: [0, 0, 0], ctrl: new Array(N).fill(0.123),
     root: { pos: [1, 2, 0.5],
             quat: [Math.SQRT1_2, 0, 0, Math.SQRT1_2] },  // yaw +90 deg
     contact: {}, paused: false, mode: "neutral",
   });
-  check(els.get("cube").style.transform.indexOf("rotateY(-60deg)") !== -1,
-        "heading +90 re-aims the viewcube (az 30 - 90 = -60); got " +
-        els.get("cube").style.transform);
+  check(els.get("cube").style.transform === cubeBefore,
+        "fly heading change leaves the viewcube untouched (camera-tracked); "
+        + "got " + els.get("cube").style.transform);
 
   /* mode button -> mode message */
   const walkBtn = document.querySelectorAll(".mode-btn")

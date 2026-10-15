@@ -406,11 +406,12 @@ def test_camera_views_change_rendered_pixels(tmp_config) -> None:
                 ws.send_text(json.dumps({"type": "camera", "mode": "third"}))
                 wait_for(lambda: scene.camera_mode == "third")
                 third_img = frame_after_change(ws, first_img)
-                # Viewcube front: orbit camera snaps to the fly's heading
+                # Viewcube front: orbit camera snaps to the world front
+                # (+x, the direction the fly faces at rest — the cube faces
+                # are world directions, so this does not track the heading)
                 ws.send_text(json.dumps({"type": "camera", "view": "front"}))
                 wait_for(lambda: scene.camera_mode == "orbit")
-                assert scene.orbit[0] == pytest.approx(
-                    scene.fly_heading_deg(), abs=1.0)
+                assert scene.orbit[0] == pytest.approx(0.0, abs=1.0)
                 front_img = frame_after_change(ws, third_img)
                 print(f"\ncamera views: orbit vs first "
                       f"{changed_frac(orbit_img, first_img):.3f}, "

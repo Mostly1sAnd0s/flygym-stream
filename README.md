@@ -149,13 +149,15 @@ record).
 ### Web UI
 
 - **Video pane**: drag to orbit (azimuth/elevation), scroll to zoom. The
-  viewcube (top-left) snaps the orbit to a side of the fly — `front` is
-  where it faces, and the cube tracks the live camera and the fly's
-  heading. The camera row switches the camera mode: `orbit` (free),
-  `1st` (top of the head, looking forward) and `3rd` (trailing behind
-  and above the fly); the body views follow the fly's motion and
-  heading, and dragging the video switches back to `orbit`. Frames are
-  MJPEG over WebSocket at the configured fps.
+  viewcube (top-right) snaps the orbit to a world direction — `front` is
+  +x, the direction the fly faces at rest — and the cube tracks the live
+  camera (not the fly), so it only moves when the camera does. The camera
+  row switches the camera mode: `orbit` (free), `1st` (level, above the
+  fly's centroid, looking along its heading) and `3rd` (30 deg above the
+  horizontal, trailing behind, looking at the fly); the body views follow
+  the fly's X/Y/Z and heading while staying level, and dragging the video
+  switches back to `orbit`. Frames are MJPEG over WebSocket at the
+  configured fps.
 - **Controls**: one slider per actuated DOF (42 in the default scene;
   builds with >42 actuators get the virtualized DOF table with live qpos
   readouts), `pause` / `resume` / `step` / `reset` / `log` buttons, and a

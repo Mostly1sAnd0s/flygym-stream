@@ -56,7 +56,6 @@ const state = {
   rtc: null,
   orbit: { azimuth: 30, elevation: -20, distance: 6400 }, // deg/deg/mm
   camMode: "orbit", // camera mode from status (M7.7: orbit|first|third)
-  heading: 0,       // fly world heading, deg (telemetry; +x faces forward)
   paused: false,
   nActuators: null,
   reconnectDelay: 1000,
@@ -290,16 +289,16 @@ function wrap180(deg) {
   return ((deg + 180) % 360 + 360) % 360 - 180;
 }
 
-/* The viewcube is a CSS 3D cube whose faces are the fly-relative camera
- * directions (M7.7). Rotating it by rotateX(-el) rotateY(az - heading)
- * brings the face the camera is on to the front (verified face math);
- * the heading (from telemetry, app_sandbox.js) keeps it fly-relative. */
+/* The viewcube is a CSS 3D cube whose faces are the world camera directions
+ * (M7.7: front = +x, the direction the fly faces at rest). Rotating it by
+ * rotateX(-el) rotateY(az) brings the face the camera is on to the front
+ * (verified face math); it is driven ONLY by the status orbit (the camera),
+ * never by the fly, so it does not shake while the fly moves. */
 function updateViewcube() {
   const cube = $("cube");
   if (!cube) return;
-  const azRel = wrap180(state.orbit.azimuth - state.heading);
   cube.style.transform =
-    `rotateX(${-state.orbit.elevation}deg) rotateY(${azRel}deg)`;
+    `rotateX(${-state.orbit.elevation}deg) rotateY(${wrap180(state.orbit.azimuth)}deg)`;
 }
 
 function updateOrbitHud() {
@@ -349,13 +348,6 @@ for (const id of ["vc-front", "vc-back", "vc-left", "vc-right",
   face.addEventListener("pointerdown", (ev) => ev.stopPropagation());
   // no orbit drag starts from a viewcube face
 }
-
-/* Hook for app_sandbox.js: telemetry carries the root quat; the fly's world
- * heading keeps the viewcube fly-relative (M7.7). */
-window.setFlyHeading = (deg) => {
-  state.heading = deg;
-  updateViewcube();
-};
 
 $("speed").addEventListener("input", (ev) => {
   $("speed-val").textContent = `${Number(ev.target.value).toFixed(1)}\u00d7`;

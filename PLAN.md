@@ -134,7 +134,7 @@ Client → server (WebSocket text, JSON):
 | `step` | `n: int` | while paused, advance n substeps + render |
 | `speed` | `value: float` | playback speed multiplier |
 | `reset` | — | reset model to initial keyframe |
-| `camera` | `mode`: `orbit`\|`first`\|`third` and/or `view`: `front`\|`back`\|`left`\|`right`\|`top`\|`bottom` (M7.7) | camera mode and/or fly-relative viewcube snap; at least one field required; manual `orbit` messages imply orbit mode; `status` carries the mode in `cam_mode` |
+| `camera` | `mode`: `orbit`\|`first`\|`third` and/or `view`: `front`\|`back`\|`left`\|`right`\|`top`\|`bottom` (M7.7) | camera mode and/or world viewcube snap (front = +x, the fly's rest heading); at least one field required; manual `orbit` messages imply orbit mode; `status` carries the mode in `cam_mode` |
 
 Server → client:
 - **binary frames**: JPEG at `output_fps` (default 30), quality 80.
@@ -574,26 +574,43 @@ protocol/app/gpu suites +≤ 100 each.
     one field required, else 1008); `status` gains `cam_mode`. Manual
     `orbit` messages always imply orbit mode.
   - Scene: `fly_forward()` = thorax→head world direction (fly faces +x
-    at rest; verified 3-DOF network test); `set_orbit_view` snaps the
-    orbit to the fly-relative side (az = heading ± 90 / 0, el = 90/−89
-    for top/bottom — verified by real-fly pixel test); `effective_camera`
-    is the rendered camera in all modes (body views recomputed from the
-    live head/thorax pose every frame; 1st = above the head looking
-    forward, 3rd = trailing behind+above looking ahead); the stored
-    orbit is the source of truth, body views never mutate it, and
-    switching back to orbit captures the current effective camera so
-    mode changes never jump the view.
-  - UI: CSS-3D viewcube (top-left of the video pane; the cube rotates by
-    `rotateX(−el) rotateY(az − heading)` so the face the camera is on
-    fronts; heading from the telemetry root quat, +x forward); orbit/1st/
-    3rd button row (active state from `status.cam_mode`); dragging the
-    video in a body view sends `camera {mode: orbit}` first; the orbit
-    HUD now leads with the camera mode. ui_smoke +8 checks.
+    at rest). Viewcube faces are WORLD directions (`set_orbit_view`: front
+    = az 0, back 180, left +90, right −90, top/bottom el ±89), so the cube
+    tracks the camera, never the fly. Body views anchor on the fly's
+    centroid (free root, or the target site when pinned) and stay LEVEL
+    (world up + yaw-only heading; a tumbling fly's raw forward can point
+    straight up): 1st = hovers above the centroid at the margin-scaled
+    head-top clearance, looking level along the heading; 3rd = 30 deg
+    above the horizontal, trailing behind (1.3 × extent), looking at the
+    centroid. `camera_pose()` is the exact render placement (the free
+    camera sits at lookat + distance × (cos el cos az, cos el sin az,
+    sin el) — verified against mjv_updateScene with a rendered parallax
+    probe); `effective_camera()` is the status/viewcube readout (body
+    camera relative to the centroid; straight-above returns true 90 so
+    the round-trip lands exactly above). The stored orbit is the source
+    of truth; switching back to orbit captures the body camera's position
+    (1st-person captures floor at half the extent, or the orbit would
+    zoom into the face).
+  - UI: CSS-3D viewcube (top-right, padded so the full rotation stays
+    inside the 112 px container; the cube rotates by
+    `rotateX(−el) rotateY(az)` from the status orbit — camera-only, so it
+    does not shake while the fly moves); orbit/1st/3rd button row (active
+    state from `status.cam_mode`); dragging the video in a body view sends
+    `camera {mode: orbit}` first; the orbit HUD leads with the camera
+    mode. ui_smoke +9 checks.
   - Verified: protocol round-trip/validation tests; tiny-scene camera
-    geometry tests; GPU pixel test (`orbit vs first 0.787`, `first vs
-    third 0.997`, `third vs front 0.999` of 320×180 px changed); live
-    `serve` e2e (cam_mode round-trip, view snap, body-view effective
-    orbit in status).
+    geometry tests (centroid-anchored, level, 30 deg); GPU pixel test
+    (`orbit vs first 0.787`, `first vs third 0.997`, `third vs front
+    0.999` of 320×180 px changed); live `serve` e2e (cam_mode round-trip,
+    view snap, body-view effective orbit in status).
+  - v2 user-feedback fix (this commit): the v1 body views were head-
+    anchored and tilted with the body — 1st sat ~2 cm INSIDE the head
+    (staring at the face) and 3rd could land inside the fly when it was
+    down; the viewcube tracked the fly's heading telemetry (shook and
+    moved while the fly moved) and sat top-left. All four fixed per the
+    spec above: centroid-anchored, level, 30 deg, world-direction faces,
+    cube top-right with padding and camera-only tracking (the telemetry
+    heading hook is gone).
 
 **7.10 Risks & decisions**:
 - Runtime scene rebuild: out of scope v1 (process restart; decision).

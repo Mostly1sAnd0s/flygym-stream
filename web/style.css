@@ -67,7 +67,8 @@ main {
 #vision {
   position: absolute;
   top: 12px;
-  right: 12px;
+  /* left of the viewcube (12 px margin + 112 px cube + 12 px gap) */
+  right: 136px;
   width: 180px;
   opacity: 0.9;
   border: 1px solid #444;
@@ -290,23 +291,30 @@ button:active { background: #343a45; }
 }
 
 /* --- Viewcube (M7.7): 3D cube, click a face to aim the orbit camera ------- */
+/* Top-right, with padding so the full rotation stays inside the container:
+   the 56 px cube's worst-case projected diagonal (~86 px at 45/45 deg with
+   the 300 px perspective) fits the 112 px box with 13 px to spare. */
 #viewcube {
   position: absolute;
-  top: 0.6rem;
-  left: 0.6rem;
-  width: 84px;
-  height: 84px;
-  perspective: 420px;
+  top: 12px;
+  right: 12px;
+  width: 112px;
+  height: 112px;
+  perspective: 300px;
   pointer-events: none; /* only the faces are clickable */
   opacity: 0.92;
 }
 #viewcube .face { pointer-events: auto; }
 .cube {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
   transform-style: preserve-3d;
-  transition: transform 0.15s linear;
+  /* no transition: the cube is driven at drag/status rate and a CSS
+     transition would spin 360 deg across the +/-180 deg azimuth wrap */
 }
 .cube .face {
   position: absolute;
@@ -324,10 +332,10 @@ button:active { background: #343a45; }
   user-select: none;
 }
 .cube .face:hover { background: rgba(46, 74, 106, 0.9); }
-/* standard CSS-cube face placement (half = 42px) */
-#vc-front  { transform: rotateY(0deg)    translateZ(42px); }
-#vc-back   { transform: rotateY(180deg)  translateZ(42px); }
-#vc-left   { transform: rotateY(-90deg)  translateZ(42px); }
-#vc-right  { transform: rotateY(90deg)   translateZ(42px); }
-#vc-top    { transform: rotateX(90deg)   translateZ(42px); }
-#vc-bottom { transform: rotateX(-90deg)  translateZ(42px); }
+/* standard CSS-cube face placement (half = 28px) */
+#vc-front  { transform: rotateY(0deg)    translateZ(28px); }
+#vc-back   { transform: rotateY(180deg)  translateZ(28px); }
+#vc-left   { transform: rotateY(-90deg)  translateZ(28px); }
+#vc-right  { transform: rotateY(90deg)   translateZ(28px); }
+#vc-top    { transform: rotateX(90deg)   translateZ(28px); }
+#vc-bottom { transform: rotateX(-90deg)  translateZ(28px); }
