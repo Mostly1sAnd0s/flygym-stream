@@ -431,7 +431,7 @@ class SimThread:
             try:
                 self._backend.apply_state(msg)
             except (ValueError, NotImplementedError) as err:
-                log.warning("state message rejected: %s", err)
+                logger.warning("state message rejected: %s", err)
         elif isinstance(msg, (Pause, Resume, Reset)):
             {Pause: self.pause, Resume: self.resume, Reset: self.reset}[type(msg)]()
         elif isinstance(msg, Speed):
@@ -440,8 +440,8 @@ class SimThread:
             # Locomotion mode/tuning (M7.3): rejections must not kill the
             # sim thread — log and keep stepping.
             if self._loco is None:
-                log.warning("locomotion message ignored (no pattern "
-                            "engine on this sim)")
+                logger.warning("locomotion message ignored (no pattern "
+                               "engine on this sim)")
             else:
                 try:
                     if isinstance(msg, Mode):
@@ -450,7 +450,7 @@ class SimThread:
                         self._loco.set_params(msg.freq, msg.amplitude,
                                               msg.phase)
                 except ValueError as err:
-                    log.warning("locomotion message rejected: %s", err)
+                    logger.warning("locomotion message rejected: %s", err)
         elif isinstance(msg, Step) and self._paused:
             self.step(msg.n)
         # Hello: handshake is the app layer's job (PLAN.md §3).

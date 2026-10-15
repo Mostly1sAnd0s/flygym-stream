@@ -85,6 +85,17 @@ def test_healthz_and_index(app_env) -> None:
         assert "FlyGym Stream" in index.text
 
 
+def test_healthz_reports_sim_liveness(app_env) -> None:
+    """A dead sim thread must be visible to the operator (2026-07-21
+    flap crash: /healthz stayed ok while the sim thread was dead and
+    the client window went black)."""
+    app, sim, _ = app_env
+    with TestClient(app) as client:
+        assert client.get("/healthz").json()["sim_running"] is True
+        sim.stop()
+        assert client.get("/healthz").json()["sim_running"] is False
+
+
 def test_ws_handshake_status_and_frames(app_env) -> None:
     app, sim, backend = app_env
     with TestClient(app) as client:

@@ -101,7 +101,8 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
     def healthz() -> dict:
         return {"ok": True, "model": producer.model_name,
                 "backend": producer.backend.name,
-                "paused": producer.sim.paused}
+                "paused": producer.sim.paused,
+                "sim_running": producer.sim.running}
 
     def _status(fps: float) -> str:
         return encode_status(Status(

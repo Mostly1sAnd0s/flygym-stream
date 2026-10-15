@@ -14,9 +14,12 @@ import mujoco as mj
 import numpy as np
 import pytest
 
+from conftest import FakeBackend
+
 from flygym_stream.config import Config
 from flygym_stream.protocol import (
-    Actuator, ActuatorSet, Neutral, Orbit, Pause, Reset, Resume, Speed, Step,
+    Actuator, ActuatorSet, Mode, Neutral, Orbit, Pause, Reset, Resume, Speed,
+    Spawn, Step,
 )
 from flygym_stream.scene import Scene
 from flygym_stream.simulation import (
@@ -29,12 +32,12 @@ from flygym_stream.simulation import (
 from flygym_stream.stream import FrameQueue, InputQueue
 
 
-def make_sim(backend, renderer, fake_clock, inputs=None) -> SimThread:
+def make_sim(backend, renderer, fake_clock, inputs=None, loco=None) -> SimThread:
     """A SimThread on deterministic time (no real thread started)."""
     return SimThread(
         backend, renderer, FrameQueue(), inputs or InputQueue(),
         Config(width=320, height=240, playback_speed=1.0),
-        clock=fake_clock, sleep=fake_clock.sleep,
+        clock=fake_clock, sleep=fake_clock.sleep, loco=loco,
     )
 
 
@@ -220,7 +223,6 @@ def test_make_backend_selection(tiny_mj_model) -> None:
 
 
 # --- Phase 7 (M7.2): state writes via Backend.apply_state ---------------------
-
 def _state_backend(tiny_mj_model):
     from flygym_stream.scene import Scene
     from flygym_stream.simulation import MuJoCoBackend
@@ -299,3 +301,69 @@ def test_adhesion_requires_adhesion_actors(tiny_mj_model) -> None:
     b = _state_backend(tiny_mj_model)
     with pytest.raises(ValueError, match="adhesion"):
         b.apply_state(Adhesion(leg="lf", state=1))
+
+
+# --- Phase 7 (M7.3): rejection survival ----------------------------------------
+
+class _RaisingLoco:
+    """A pattern engine like the real LocomotionEngine on a legs-only
+    scene: set_mode('flap') raises ValueError (no wing actuators)."""
+
+    def __init__(self) -> None:
+        self.mode = "neutral"
+        self.calls: list[str] = []
+
+    def apply(self, data) -> None:  # pragma: no cover - duck type
+        pass
+
+    def set_mode(self, value: str) -> None:
+        self.calls.append(value)
+        if value == "flap":
+            raise ValueError(
+                "flap requires wing actuators (serve with --dof all)")
+
+    def set_params(self, freq, amplitude, phase) -> None:
+        pass
+
+
+def test_loco_rejection_does_not_kill_sim(fake_backend, fake_renderer,
+                                           fake_clock) -> None:
+    """A rejected locomotion message (e.g. flap without wing actuators)
+    must be logged, not kill the sim thread (2026-07-21 user report):
+    the loop keeps stepping and later messages keep working."""
+    loco = _RaisingLoco()
+    inputs = InputQueue()
+    sim = make_sim(fake_backend, fake_renderer, fake_clock, inputs, loco=loco)
+    inputs.put(Mode(value="flap"))  # raises inside set_mode
+    fake_clock.t = 0.010
+    sim.tick()  # must not raise
+    assert fake_backend.steps == 10  # kept stepping past the rejection
+    assert loco.calls == ["flap"]  # the attempt was dispatched
+    inputs.put(Mode(value="walk"))  # a valid mode still works afterwards
+    sim.tick()
+    assert loco.calls == ["flap", "walk"]
+
+
+class _StateRejectingBackend(FakeBackend):
+    """A FakeBackend whose apply_state rejects Spawn (like spawn on a
+    pinned root); everything else records like the base."""
+
+    def apply_state(self, msg: object) -> None:
+        if type(msg).__name__ == "Spawn":
+            raise ValueError("spawn requires a free root")
+        super().apply_state(msg)
+
+
+def test_state_rejection_does_not_kill_sim(fake_renderer, fake_clock) -> None:
+    """The same contract for state messages: an apply_state rejection must
+    not kill the loop; later inputs keep being applied."""
+    backend = _StateRejectingBackend()
+    inputs = InputQueue()
+    sim = make_sim(backend, fake_renderer, fake_clock, inputs)
+    inputs.put(Spawn(pos=(0, 0, 1.0), quat=(1.0, 0.0, 0.0, 0.0)))
+    inputs.put(Actuator(index=0, value=0.5))
+    fake_clock.t = 0.010
+    sim.tick()  # must not raise
+    assert backend.steps == 10  # kept stepping past the rejection
+    assert any(type(m).__name__ == "Actuator" for m in backend.inputs)
+    assert not any(type(m).__name__ == "Spawn" for m in backend.inputs)
