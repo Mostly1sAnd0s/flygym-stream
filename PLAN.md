@@ -492,7 +492,14 @@ protocol/app/gpu suites +≤ 100 each.
       Building a real gait (stance control, foot lift, contact
       feedback) is an open research task — exactly what the sandbox
       (set_state + per-DOF ctrl + telemetry + force) is for.
-- M7.4 Telemetry + model-info + JSONL logging + `GET /log`.
+- ~~M7.4 Telemetry + model-info + JSONL logging + `GET /log`.~~ ✅ `eab746b`
+  - Impl notes: telemetry runs only while unpaused (1 Hz status covers
+    paused); root = qpos[0:7] when free-root else the `nmf/c_thorax`
+    body frame (tethered); MuJoCo 3.9 has no `actuator_acttype` field —
+    model-info reports the (gaintype, biastype, dyntype) triple + target
+    instead; binding enum names come from `mjtJoint(v).name` (HINGE=3
+    there, not 1); FastAPI cannot take union return annotations on
+    routes (`/log` returns FileResponse|JSONResponse un-annotated).
 - M7.5 UI sandbox (DOF table, mode row, perturbation panel, telemetry
   strip; default UI unchanged).
 - M7.6 Stretch: terrain worlds → tethered → musculoskeletal → vision.
