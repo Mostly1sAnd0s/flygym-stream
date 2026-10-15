@@ -93,6 +93,12 @@ global.URL = {
   revokeObjectURL: () => {},
 };
 
+/* The classic <script> files share the page's global object. In the
+   browser a top-level `const Sandbox` is NOT a window property, so
+   app.js's `window.Sandbox` activation gate must be tested against the
+   real contract: here `window` IS the global scope. */
+global.window = globalThis;
+
 /* --- model-info fixture (shape of telemetry.gather_model_info) -------------- */
 const N = 132;
 const modelInfo = {
@@ -127,7 +133,28 @@ const harness = `
     b._mode = m;
   });
 
-  Sandbox.init(modelInfo);
+  /* Classic slider list: the first status builds n_actuators sliders
+     (ensureSliders in app.js) — the first UI a user sees. */
+  let statusErr = null;
+  try {
+    onStatus({ type: "status", sim_time: 1.0, fps: 30.0, paused: false,
+               n_actuators: 42, backend: "cpu", model: "fly",
+               orbit: { azimuth: 30, elevation: -20, distance: 6400 },
+               mode: "neutral", n_dof: 133 });
+  } catch (err) { statusErr = err; }
+  check(statusErr === null,
+        "onStatus/ensureSliders does not throw" +
+        (statusErr ? \` (got \${statusErr.message})\` : ""));
+  check(els.get("sliders").children.length === 42,
+        \`status builds the 42 classic sliders (got \${els.get("sliders").children.length})\`);
+
+  /* The sandbox activates through app.js's window.Sandbox gate: a
+     top-level const in a classic <script> is NOT a window property. */
+  check(window.Sandbox && typeof window.Sandbox.init === "function",
+        "sandbox UI reachable as window.Sandbox (app.js activation gate)");
+  if (!window.Sandbox) return;  // remaining checks need the sandbox wired
+
+  onText({ type: "model-info", ...modelInfo });
   check(els.get("dof-table").classList.contains("hidden") === false,
         "DOF table shown for nu>42");
   check(els.get("sliders").style.display === "none",
@@ -142,7 +169,7 @@ const harness = `
   const ctrl = new Array(N).fill(0.123);
   const qpos = new Array(133).fill(0);
   qpos[0] = 1; qpos[1] = 2; qpos[2] = 0.5;
-  Sandbox.onTelemetry({
+  window.Sandbox.onTelemetry({
     t: 0.1, qpos, qvel: [0.01, 0.02, 0.03], ctrl,
     root: { pos: [1, 2, 0.5], quat: [1, 0, 0, 0] },
     contact: { lf: [0.0], lm: [0.0], lh: [0.0], rf: [0.0], rm: [0.0],
@@ -174,7 +201,7 @@ const harness = `
   /* a second telemetry resyncs untouched sliders to the server value */
   const ctrl2 = new Array(N).fill(0.123);
   ctrl2[1] = -0.77;
-  Sandbox.onTelemetry({
+  window.Sandbox.onTelemetry({
     t: 0.2, qpos, qvel: [0, 0, 0], ctrl: ctrl2,
     root: { pos: [1, 2, 0.5], quat: [1, 0, 0, 0] },
     contact: {}, paused: false, mode: "neutral",

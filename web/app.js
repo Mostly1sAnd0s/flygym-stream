@@ -202,7 +202,7 @@ function setHud(text, cls) {
 
 /* --- actuators ------------------------------------------------------------- */
 function ensureSliders(n) {
-  if (n === null || n === state.slidersEl.childElementCount) return;
+  if (n === null || n === slidersEl.childElementCount) return;
   slidersEl.replaceChildren();
   for (let i = 0; i < n; i++) {
     const row = document.createElement("div");

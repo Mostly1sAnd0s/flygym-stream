@@ -10,7 +10,10 @@
  */
 "use strict";
 
-const Sandbox = (() => {
+/* Assigned to `window` (NOT a top-level const): app.js gates the sandbox
+ * on `window.Sandbox`, and a top-level const in a classic <script> does
+ * not create a window property — the UI would never activate. */
+window.Sandbox = (() => {
   const $ = (id) => document.getElementById(id);
   const ROW_H = 30;       // px per virtualized row
   const OVERSCAN = 4;     // rows rendered beyond the viewport

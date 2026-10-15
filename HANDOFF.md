@@ -20,7 +20,7 @@ telemetry + force + vision) exists to build the next one.
   pytest starts. Sudo password: `rocknrollmcds` (not needed normally).
 - Test suites: `uv run pytest -q` (default: 145 passed, 1 skipped),
   `-m gpu` (18), `-m network` (18, slow ~2 min, mesh cache),
-  `node scripts/ui_smoke.cjs` (23 UI checks). House rule: strict TDD
+  `node scripts/ui_smoke.cjs` (26 UI checks). House rule: strict TDD
   (failing test first), every file < 500 lines (meta-test
   `tests/test_line_limits.py`), DRY (protocol.py = wire truth, one scene
   builder, one stepping interface), green suite + commit per milestone.
@@ -32,7 +32,9 @@ Committed & verified: M7.1 scenes/CLI variants (`a185829`), M7.2 state
 control (`af27734`), M7.3 locomotion (`1493b9a`), M7.4 telemetry/
 model-info/logging (`eab746b`), M7.5 sandbox UI (`4fa78cc`), M7.6
 musculoskeletal + telemetry-starvation fix (`e8dbe48`), M7.6 vision
-`--vision` (`226f674`).
+`--vision` (`226f674`). Plus: browser-scoping UI bug fix
+(`window.Sandbox` activation gate + `ensureSliders` state field — see
+"Known facts" below; real-Chromium verification PASS).
 
 Vision (M7.6, `226f674`): `--vision` builds through
 `flygym.Simulation(world)` (it compiles the world; the Scene steps the
@@ -47,6 +49,36 @@ commit `4d837cc` (TDD stop point with the 3 red spec tests) is its
 parent's context — all red tests are green now.
 
 ## Known facts that save time (verified 2026-10-15)
+
+- **Browser-script scoping (UI bug class, fixed 2026-10-15):** a
+  top-level `const` in a classic `<script>` is a global *lexical*
+  binding — it does NOT create a `window` property. `app_sandbox.js`
+  must assign `window.Sandbox = ...` (it did `const Sandbox = ...`, so
+  app.js's `window.Sandbox` gate never fired and the whole sandbox UI
+  never activated in a real browser — M7.5 bug). Similarly
+  `ensureSliders` referenced a nonexistent `state.slidersEl` field
+  (Phase 5 bug) → TypeError on every status → the 42-slider list never
+  rendered. Both escaped detection because (a) the pytest suites are
+  server-side only and (b) ui_smoke concatenates the scripts into one
+  scope and never drove `onStatus`. ui_smoke now models the real page
+  contract (`window === globalThis`, sandbox activated via
+  `onText({type:"model-info"})`, `onStatus` builds the classic sliders)
+  — 26 checks.
+- **The fly's prone rest pose is physics, not a bug:** the default
+  scene's neutral keyframe is prone (body on the ground); the free root
+  quaternion slowly creep-rotates on the ground indefinitely (NoSlip +
+  position actuators) — that's what a fresh `reset` looks like. Use the
+  known standing-pose ctrl offsets (below) via the sliders/`set_state`
+  to get a usable standing fly.
+- **`--overlay depth` costs ~4x frame time:** the depth-overlay service
+  streams ~6-7 fps (two 720p GL passes/frame) and the sim then runs
+  well below real time (the fly looks like it's moving in slow motion).
+  Restart without `--overlay depth` for full-speed 30 fps.
+- Real-browser verification works on this host: `npx playwright install
+  chromium` (headless shell, ~120 MB) + a Node script that loads the
+  live page, captures `pageerror`/console, and drives the controls
+  (pause→HUD PAUSED, mode walk→telemetry strip, slider input, vision
+  overlay on a `--vision` instance). Used to diagnose the UI bug above.
 
 - `flygym.Simulation(world)` compiles the world itself, resets to the
   `neutral` keyframe, and exposes `sim.mj_model` / `sim.mj_data`;
