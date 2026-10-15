@@ -159,6 +159,11 @@ class FakeBackend:
         """Record an input message (no physical effect)."""
         self.inputs.append(msg)
 
+    def apply_state(self, msg: object) -> None:
+        """Record a state message (duck-types simulation.Backend).
+        Fake data has no qpos/qvel, so state writes are record-only."""
+        self.inputs.append(msg)
+
     def reset(self) -> None:
         self._time = 0.0
         self._steps = 0

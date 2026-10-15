@@ -13,14 +13,20 @@ import pytest
 
 import flygym_stream.protocol as proto
 from flygym_stream.protocol import (
+    Adhesion,
     Actuator,
     ActuatorSet,
+    Force,
     Hello,
+    Keyframe,
     Orbit,
+    Param,
     Pause,
     ProtocolError,
     Reset,
     Resume,
+    SetState,
+    Spawn,
     Speed,
     Step,
     Status,
@@ -139,3 +145,70 @@ def test_status_carries_orbit_state() -> None:
     wire = json.loads(encode_status(status))
     assert wire["orbit"] == {"azimuth": 30.0, "elevation": -20.0,
                              "distance": 6400.0}
+
+
+# --- Phase 7 (M7.2): research-sandbox control messages -----------------------
+
+def test_set_state_round_trip() -> None:
+    msg = decode_control(json.dumps(
+        {"type": "set_state", "qpos": [0.0, 1.0], "ctrl": [0.5]}))
+    assert isinstance(msg, SetState)
+    assert msg.qpos == (0.0, 1.0) and msg.qvel is None and msg.ctrl == (0.5,)
+
+
+def test_set_state_requires_at_least_one_field() -> None:
+    with pytest.raises(ProtocolError, match="set_state"):
+        decode_control('{"type": "set_state"}')
+
+
+def test_spawn_round_trip() -> None:
+    msg = decode_control(json.dumps(
+        {"type": "spawn", "pos": [1.0, 2.0, 3.0],
+         "quat": [1.0, 0.0, 0.0, 0.0]}))
+    assert isinstance(msg, Spawn)
+    assert msg.pos == (1.0, 2.0, 3.0) and msg.quat == (1.0, 0.0, 0.0, 0.0)
+    with pytest.raises(ProtocolError):
+        decode_control('{"type": "spawn", "pos": [1, 2], "quat": [1,0,0,0]}')
+
+
+def test_force_round_trip() -> None:
+    msg = decode_control(json.dumps(
+        {"type": "force", "body": "nmf/c_thorax", "force": [0, 0, 5.0]}))
+    assert isinstance(msg, Force)
+    assert msg.body == "nmf/c_thorax" and msg.force == (0.0, 0.0, 5.0)
+    assert msg.torque is None and msg.duration is None
+    msg = decode_control(json.dumps(
+        {"type": "force", "body": 1, "force": [1, 2, 3],
+         "torque": [0, 0, 0.5], "duration": 0.2}))
+    assert msg.body == 1 and msg.torque == (0.0, 0.0, 0.5)
+    with pytest.raises(ProtocolError):
+        decode_control('{"type": "force", "body": 1, "force": [1, 2]}')
+    with pytest.raises(ProtocolError):
+        decode_control('{"type": "force", "body": 1, "force": [1,2,3], '
+                       '"duration": -1}')
+
+
+def test_param_whitelist_round_trip() -> None:
+    msg = decode_control(
+        '{"type": "param", "name": "gravity", "value": [0, 0, 0]}')
+    assert isinstance(msg, Param) and msg.value == (0.0, 0.0, 0.0)
+    msg = decode_control('{"type": "param", "name": "timestep", "value": 0.0002}')
+    assert msg.name == "timestep" and msg.value == 0.0002
+    with pytest.raises(ProtocolError, match="param"):
+        decode_control('{"type": "param", "name": "bogus", "value": 1}')
+    with pytest.raises(ProtocolError):
+        decode_control('{"type": "param", "name": "gravity", "value": [0, 0]}')
+
+
+def test_keyframe_round_trip() -> None:
+    msg = decode_control('{"type": "keyframe", "name": "neutral"}')
+    assert isinstance(msg, Keyframe) and msg.name == "neutral"
+
+
+def test_adhesion_round_trip() -> None:
+    msg = decode_control('{"type": "adhesion", "leg": "lf", "state": 1}')
+    assert isinstance(msg, Adhesion) and msg.leg == "lf" and msg.state == 1
+    with pytest.raises(ProtocolError):
+        decode_control('{"type": "adhesion", "leg": "lf", "state": 2}')
+    with pytest.raises(ProtocolError):
+        decode_control('{"type": "adhesion", "leg": "wing", "state": 1}')

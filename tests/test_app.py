@@ -200,3 +200,47 @@ def test_static_assets_served(app_env) -> None:
         assert client.get("/nope.js").status_code == 404
 
 
+
+
+def test_ws_state_messages_reach_backend(app_env) -> None:
+    """M7.2: set_state/force/param/keyframe/spawn/adhesion decode and
+    reach the backend's apply_state (fake backend records them)."""
+    app, sim, backend = app_env
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(HELLO)
+            recv_status(ws)
+            for payload in (
+                {"type": "set_state", "ctrl": [0.25]},
+                {"type": "force", "body": 1, "force": [0, 0, 1.0]},
+                {"type": "param", "name": "timestep", "value": 0.001},
+                {"type": "keyframe", "name": "neutral"},
+                {"type": "spawn", "pos": [0, 0, 1.0],
+                 "quat": [1.0, 0.0, 0.0, 0.0]},
+                {"type": "adhesion", "leg": "lf", "state": 1},
+            ):
+                ws.send_text(json.dumps(payload))
+            # State messages drain through the (async) sim thread: poll
+            # until all six are applied rather than racing it.
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                types = {type(m).__name__ for m in backend.inputs}
+                if len(backend.inputs) >= 6:
+                    break
+                time.sleep(0.01)
+            types = {type(m).__name__ for m in backend.inputs}
+            for expected in ("SetState", "Force", "Param", "Keyframe",
+                             "Spawn", "Adhesion"):
+                assert expected in types, (expected, types)
+
+
+def test_ws_bad_param_name_closes_1008(app_env) -> None:
+    app, sim, backend = app_env
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(HELLO)
+            recv_status(ws)
+            ws.send_text(json.dumps(
+                {"type": "param", "name": "nuclear", "value": 1.0}))
+            exc = recv_close(ws)
+            assert exc.code == 1008

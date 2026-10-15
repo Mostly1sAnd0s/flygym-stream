@@ -17,8 +17,8 @@ import mujoco as mj
 
 from flygym_stream.config import Config
 from flygym_stream.protocol import (
-    Actuator, ActuatorSet, InputMessage, Neutral, Orbit, Pause, Reset,
-    Resume, Speed, Step,
+    Adhesion, Actuator, ActuatorSet, Force, Hello, InputMessage, Keyframe,
+    Neutral, Orbit, Param, Pause, Reset, Resume, SetState, Spawn, Speed, Step,
 )
 from flygym_stream.scene import Scene
 from flygym_stream.stream import FrameQueue, InputQueue
@@ -106,14 +106,29 @@ class MuJoCoBackend(Backend):
         """Reset the model to its initial (neutral) state."""
         self._scene.reset()
 
+    def apply_state(self, msg: InputMessage) -> None:
+        """Apply a state message through the Scene surface (M7.2).
 
-class MJWarpBackend(Backend):
-    """GPU stepping via MJWarp (optional 'gpu' extra + NVIDIA CUDA).
+        Raises:
+            ValueError: If the scene cannot honor it (e.g. spawn on a
+                pinned root, unknown keyframe/body, non-adhesion leg).
+        """
+        if isinstance(msg, SetState):
+            self._scene.apply_state_arrays(msg.qpos, msg.qvel, msg.ctrl)
+        elif isinstance(msg, Spawn):
+            self._scene.set_root_pose(msg.pos, msg.quat)
+        elif isinstance(msg, Force):
+            self._scene.apply_force(msg.body, msg.force, msg.torque)
+        elif isinstance(msg, Param):
+            self._scene.apply_param(msg.name, msg.value)
+        elif isinstance(msg, Keyframe):
+            self._scene.apply_keyframe(msg.name)
+        elif isinstance(msg, Adhesion):
+            self._scene.set_adhesion(msg.leg, msg.state)
+        else:
+            raise TypeError(f"not a state message: {type(msg).__name__}")
+        self.inputs.append(msg)
 
-    The GPU stack is imported lazily so the service runs CPU-only by
-    default; without the extra, construction fails with an actionable
-    error (unit-tested). Real mjw stepping lands in Phase 6.
-    """
 
 class MJWarpBackend(Backend):
     """GPU stepping via MJWarp (optional 'gpu' extra + NVIDIA CUDA).
@@ -344,6 +359,15 @@ class SimThread:
     def _dispatch(self, msg: InputMessage) -> None:
         if isinstance(msg, (Actuator, ActuatorSet, Neutral, Orbit)):
             self._backend.apply_input(msg)
+        elif isinstance(msg, (SetState, Spawn, Force, Param, Keyframe,
+                              Adhesion)):
+            # Research-sandbox state writes (M7.2): a rejection must not
+            # kill the sim thread — log and keep stepping (error
+            # telemetry lands in M7.4).
+            try:
+                self._backend.apply_state(msg)
+            except (ValueError, NotImplementedError) as err:
+                log.warning("state message rejected: %s", err)
         elif isinstance(msg, (Pause, Resume, Reset)):
             {Pause: self.pause, Resume: self.resume, Reset: self.reset}[type(msg)]()
         elif isinstance(msg, Speed):

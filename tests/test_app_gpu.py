@@ -120,3 +120,75 @@ def test_full_stack_orbit_and_actuators_change_pixels(tmp_config) -> None:
     finally:
         sim.stop()
         renderer.close()
+
+
+@pytest.mark.gpu
+def test_gpu_state_messages_change_real_physics(tmp_config) -> None:
+    """M7.2 full stack: the six research-sandbox state messages over the WS
+    change the *real* physics of the real fly scene (paused so assertions
+    race no stepping; GL required)."""
+    from flygym_stream.protocol import Adhesion, Force, Keyframe, Param, SetState, Spawn
+    from flygym_stream.rendering import OffscreenRenderer
+    from flygym_stream.scenes import SceneConfig, build_scene
+    from flygym_stream.simulation import make_backend
+
+    scene = build_scene(SceneConfig(adhesion=True))  # 42 + 6 = 48 actuators
+    backend = make_backend(scene, tmp_config)
+    renderer = OffscreenRenderer(scene, tmp_config)
+    frames, inputs = FrameQueue(), InputQueue()
+    sim = SimThread(backend, renderer, frames, inputs, tmp_config)
+    sim.start()
+    app = create_app(tmp_config, Producer(frames, inputs, backend, sim))
+    d = scene.mj_data
+    try:
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws") as ws:
+                ws.send_text(HELLO)
+                status = recv_status(ws)
+                assert status["n_actuators"] == 48
+                ws.send_text(json.dumps({"type": "pause"}))
+                wait_for(lambda: sim.paused, timeout=5.0)
+
+                def applied(cls: type) -> None:
+                    wait_for(lambda: any(isinstance(m, cls) for m in backend.inputs),
+                             timeout=5.0)
+
+                nu = scene.mj_model.nu
+                ws.send_text(json.dumps({"type": "set_state",
+                                         "ctrl": [0.31] * nu}))
+                applied(SetState)
+                assert d.ctrl[0] == 0.31
+
+                ws.send_text(json.dumps(
+                    {"type": "spawn", "pos": [0.0, 0.0, 1.5],
+                     "quat": [1.0, 0.0, 0.0, 0.0]}))
+                applied(Spawn)
+                assert abs(d.qpos[2] - 1.5) < 1e-6
+
+                ws.send_text(json.dumps(
+                    {"type": "force", "body": "nmf/c_thorax",
+                     "force": [0.0, 0.0, 5.0]}))
+                applied(Force)
+                import mujoco as mj
+                body = mj.mj_name2id(scene.mj_model, mj.mjtObj.mjOBJ_BODY,
+                                     "nmf/c_thorax")
+                assert d.xfrc_applied.reshape(-1)[6 * body + 2] == 5.0
+
+                ws.send_text(json.dumps(
+                    {"type": "param", "name": "gravity",
+                     "value": [0.0, 0.0, 0.0]}))
+                applied(Param)
+                assert list(scene.mj_model.opt.gravity) == [0.0, 0.0, 0.0]
+
+                ws.send_text(json.dumps(
+                    {"type": "adhesion", "leg": "lf", "state": 1}))
+                applied(Adhesion)
+                assert d.ctrl[nu - 6] == 1.0
+
+                ws.send_text(json.dumps(
+                    {"type": "keyframe", "name": "neutral"}))
+                applied(Keyframe)
+                assert abs(d.qpos[2] - 0.8) < 1e-3  # spawn height restored
+    finally:
+        sim.stop()
+        renderer.close()

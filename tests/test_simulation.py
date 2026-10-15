@@ -217,3 +217,85 @@ def test_make_backend_selection(tiny_mj_model) -> None:
         assert isinstance(make_backend(scene, Config(backend="auto")), MuJoCoBackend)
         with pytest.raises(RuntimeError, match="gpu"):
             make_backend(scene, Config(backend="gpu"))
+
+
+# --- Phase 7 (M7.2): state writes via Backend.apply_state ---------------------
+
+def _state_backend(tiny_mj_model):
+    from flygym_stream.scene import Scene
+    from flygym_stream.simulation import MuJoCoBackend
+    m, d = tiny_mj_model
+    return MuJoCoBackend(Scene(m, d, actuator_ids=[0], target_site="target"))
+
+
+def test_set_state_writes_qpos_and_ctrl(tiny_mj_model) -> None:
+    from flygym_stream.protocol import SetState
+    b = _state_backend(tiny_mj_model)
+    b.apply_state(SetState(qpos=(0.5,), qvel=(9.0,), ctrl=(1.5,)))
+    assert b.time >= 0.0  # sanity
+    assert b._scene.mj_data.qpos[0] == 0.5
+    assert b._scene.mj_data.qvel[0] == 9.0
+    assert b._scene.mj_data.ctrl[0] == 1.5
+
+
+def test_set_state_rejects_wrong_lengths(tiny_mj_model) -> None:
+    from flygym_stream.protocol import SetState
+    b = _state_backend(tiny_mj_model)
+    with pytest.raises(ValueError, match="length"):
+        b.apply_state(SetState(qpos=(0.5, 0.0), qvel=None, ctrl=None))
+
+
+def test_spawn_requires_free_root(tiny_mj_model) -> None:
+    """The tiny model's root body is fixed: spawn must raise, not no-op
+    silently (the client can see the world type in model-info, M7.4)."""
+    from flygym_stream.protocol import Spawn
+    b = _state_backend(tiny_mj_model)
+    with pytest.raises(ValueError, match="free root"):
+        b.apply_state(Spawn(pos=(1, 2, 3), quat=(1, 0, 0, 0)))
+
+
+def test_param_whitelist_applies(tiny_mj_model) -> None:
+    from flygym_stream.protocol import Param
+    b = _state_backend(tiny_mj_model)
+    m = b._scene.mj_model
+    b.apply_state(Param(name="gravity", value=(0.0, 0.0, -1.0)))
+    assert list(m.opt.gravity) == [0.0, 0.0, -1.0]
+    b.apply_state(Param(name="timestep", value=0.002))
+    assert m.opt.timestep == pytest.approx(0.002)
+    b.apply_state(Param(name="friction", value=(0.3, 0.4, 0.5)))
+    assert list(m.opt.o_friction[0:3]) == [0.3, 0.4, 0.5]
+    with pytest.raises(ValueError, match="whitelist"):
+        b.apply_state(Param(name="bogus", value=1.0))
+
+
+def test_force_injects_into_xfrc_applied(tiny_mj_model) -> None:
+    import mujoco as mj
+    from flygym_stream.protocol import Force
+    b = _state_backend(tiny_mj_model)
+    scene = b._scene
+    body = mj.mj_name2id(scene.mj_model, mj.mjtObj.mjOBJ_BODY, "body")
+    b.apply_state(Force(body="body", force=(1.0, 2.0, 3.0)))
+    adr = 6 * body
+    flat = np.asarray(scene.mj_data.xfrc_applied).reshape(-1)
+    assert list(flat[adr:adr + 3]) == [1.0, 2.0, 3.0]
+    # body by id works too; unknown body raises
+    b.apply_state(Force(body=body, force=(0.5, 0.0, 0.0)))
+    assert flat[adr] == 0.5
+    with pytest.raises(ValueError, match="body"):
+        b.apply_state(Force(body="nope", force=(0, 0, 0)))
+
+
+def test_keyframe_unknown_rejected(tiny_mj_model) -> None:
+    """The tiny model has no keyframes: unknown names must raise."""
+    from flygym_stream.protocol import Keyframe
+    b = _state_backend(tiny_mj_model)
+    with pytest.raises(ValueError, match="keyframe"):
+        b.apply_state(Keyframe(name="neutral"))
+
+
+def test_adhesion_requires_adhesion_actors(tiny_mj_model) -> None:
+    """No adhesion actuators in the tiny model: must raise, not no-op."""
+    from flygym_stream.protocol import Adhesion
+    b = _state_backend(tiny_mj_model)
+    with pytest.raises(ValueError, match="adhesion"):
+        b.apply_state(Adhesion(leg="lf", state=1))
