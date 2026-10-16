@@ -466,9 +466,9 @@ class Scene:
 
     def update_mjv_camera(self, cam: mj.MjvCamera) -> None:
         """Fill ``cam`` so the rendered free camera lands at the effective
-        pose: the stored orbit in orbit mode, or the body view's pos/look
-        round-trip (free camera sits at lookat + distance * (cos el cos az,
-        cos el sin az, sin el); verified against mjv_updateScene)."""
+        pose (stored orbit, or body-view pos/look). Camera offset = dist *
+        (cos el cos az, cos el sin az, sin el) (az 0 = +x = fly's front, el
+        > 0 above); MuJoCo's camera sits at lookat - offset: pass az+180, -el."""
         if self._camera_mode == "orbit":
             az, el, dist_m = self._azimuth, self._elevation, self._distance_m
             lookat = self.mj_data.site_xpos[self._target_site_id]
@@ -480,8 +480,8 @@ class Scene:
             az = math.degrees(math.atan2(v[1], v[0]))
             lookat = look
         cam.type = mj.mjtCamera.mjCAMERA_FREE
-        cam.azimuth = az
-        cam.elevation = el
+        cam.azimuth = az + 180.0
+        cam.elevation = -el
         cam.distance = dist_m
         cam.lookat[:] = lookat
 

@@ -189,7 +189,7 @@ def test_mujoco_backend_applies_inputs(tiny_mj_model) -> None:
     b.apply_input(Orbit(azimuth=10.0, elevation=-5.0, distance=50.0))
     cam = mj.MjvCamera()
     scene.update_mjv_camera(cam)
-    assert cam.azimuth == pytest.approx(10.0)
+    assert cam.azimuth == pytest.approx(190.0)  # MuJoCo free cam: lookat - offset
     with pytest.raises(ValueError):
         b.apply_input(Actuator(index=9, value=0.0))
     with pytest.raises(TypeError):

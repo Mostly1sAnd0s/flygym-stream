@@ -140,8 +140,12 @@ def test_scene_set_orbit_camera_fills_mjv_camera(tiny_mj_model) -> None:
     cam = mj.MjvCamera()
     s.update_mjv_camera(cam)
     assert cam.type == mj.mjtCamera.mjCAMERA_FREE
-    assert cam.azimuth == pytest.approx(30.0)
-    assert cam.elevation == pytest.approx(-15.0)
+    # App convention: camera offset = dist*(cos el cos az, cos el sin az,
+    # sin el) (az 0 = +x = the fly's front; el > 0 = above). MuJoCo's free
+    # camera sits at lookat MINUS that offset (rendered-marker verified),
+    # so the service passes azimuth + 180 and -elevation.
+    assert cam.azimuth == pytest.approx(210.0)
+    assert cam.elevation == pytest.approx(15.0)
     assert cam.distance == pytest.approx(0.1)  # MuJoCo is SI: meters
     expected_lookat = s.mj_data.site_xpos[
         mj.mj_name2id(s.mj_model, mj.mjtObj.mjOBJ_SITE, "target")
@@ -165,7 +169,8 @@ def test_scene_clamps_orbit_elevation_and_distance(tiny_mj_model) -> None:
     s.set_orbit_camera(azimuth=0.0, elevation=120.0, distance_mm=1.0)
     cam = mj.MjvCamera()
     s.update_mjv_camera(cam)
-    assert cam.elevation < 90.0
+    # stored el clamps to +89 (app convention) -> MuJoCo el = -89
+    assert cam.elevation == pytest.approx(-scene_mod.MAX_ORBIT_ELEVATION_DEG)
     assert cam.distance >= scene_mod.MIN_ORBIT_DISTANCE_M
 
 
@@ -205,14 +210,17 @@ def make_cam_tiny_scene() -> Scene:
 
 
 def cam_pos(cam) -> tuple[float, float, float]:
-    """Reconstruct the free-camera position from its az/el/dist/lookat."""
+    """Reconstruct the ACTUAL rendered free-camera position from its
+    az/el/dist/lookat: MuJoCo places it at lookat - dist*(cos el cos az,
+    cos el sin az, sin el) (verified with rendered marker probes — the
+    camera sits on the OPPOSITE side of the offset direction)."""
     az = math.radians(cam.azimuth)
     el = math.radians(cam.elevation)
     look = np.asarray(cam.lookat, dtype=float)
     off = cam.distance * np.array(
         [math.cos(el) * math.cos(az), math.cos(el) * math.sin(az),
          math.sin(el)])
-    return tuple(look + off)
+    return tuple(look - off)
 
 
 def test_camera_defaults_to_orbit_mode() -> None:

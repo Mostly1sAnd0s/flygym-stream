@@ -637,6 +637,33 @@ protocol/app/gpu suites +≤ 100 each.
     40-point (az, el) grid — zero error for all six faces' normals + label
     right/up axes (the old layout's max error 2.0). ui_smoke +2 checks
     (style.css face layout; flipped transform string).
+  - v5 user-feedback fix: the viewcube tilt was STILL inverted (and its
+    rotation was 180° off) — the cube was congruent with the APP
+    convention, but the video was not rendering in it. Rendered-marker
+    probes (two markers at ±x/±y: the −x one renders ~3× bigger at az 0;
+    pos/look round-trip renders at the mirror point) establish MuJoCo's
+    free-camera truth: position = lookat − distance × (cos el cos az,
+    cos el sin az, sin el) — the OPPOSITE side from the "lookat + …" 
+    formula recorded in v1 (that parallax probe verified axes, not the
+    sign), with standard up (+z) and right-handed orientation. So the
+    video at the app's (az, el) actually sat at (az+180, −el): the v4
+    cube appeared to rotate and tilt opposite the video, the v3 face
+    snaps put the camera 180° away from the clicked face, and the
+    1st/3rd-person body views rendered at the mirror point
+    (2·look − pos) — a latent bug with the same root cause. Fix:
+    one boundary conversion in Scene.update_mjv_camera — cam.azimuth =
+    az + 180, cam.elevation = −el (orbit AND body branches). The client
+    is unchanged: the v4 transform is now verified EXACTLY congruent
+    with the app-convention camera, T_css = M(az,el)ᵀ W0 (M = the
+    screen basis, W0 = the true cube pose front→+x, left→+y, top→+z),
+    max matrix error 0.0000 on a 35×9 (az, el) grid. Tests: the cam_pos
+    helper reconstructs the ACTUAL MuJoCo position (lookat − offset);
+    new GPU e2e — front view (az 0/el 0) renders the head (0.6 m, 18°
+    across) completely occluding the collinear thorax (0.8 m, 7°);
+    pre-fix the thorax rendered in front (981 px visible around the
+    head); field tests assert the +180/−el conversion and the −89
+    clamp; the sim-backend test asserts orbit az 10 → cam 190; the
+    real-fly body views (network) assert the intended placements.
 
 **7.10 Risks & decisions**:
 - Runtime scene rebuild: out of scope v1 (process restart; decision).

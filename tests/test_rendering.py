@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import threading
 
+import mujoco as mj
 import numpy as np
 import pytest
 from PIL import Image
@@ -22,6 +23,39 @@ from flygym_stream.rendering import (
     encode_jpeg,
 )
 from flygym_stream.scene import build_default_scene
+from tests.test_scene import make_cam_tiny_scene
+
+
+@pytest.mark.gpu
+def test_front_view_renders_the_flys_front() -> None:
+    """End-to-end (GL): the app-convention front view (az 0, el 0) must put
+    the camera on the +x side — the fly's FRONT side. There the head (0.2
+    ahead of the thorax, r 0.1 at 0.6 m: 18 deg across) completely OCCLUDES
+    the thorax (r 0.05 at 0.8 m: 7 deg) which sits collinearly behind it. On
+    the -x side (the pre-fix MuJoCo placement) it is the thorax that sits in
+    front and the head renders as a ring around it — both blobs visible.
+    (Area alone can't discriminate: the head's 2x radius wins either side.)"""
+    from mujoco.renderer import Renderer
+
+    s = make_cam_tiny_scene()
+    s.set_orbit_camera(azimuth=0.0, elevation=0.0, distance_mm=800.0)
+    cam = mj.MjvCamera()
+    s.update_mjv_camera(cam)
+    ren = Renderer(s.mj_model, height=240, width=320)
+    ren.update_scene(s.mj_data, camera=cam)
+    img = ren.render().astype(int)
+    ren.close()
+
+    def blob_area(mask_fn) -> int:
+        return int(mask_fn(img).sum())
+
+    head = blob_area(lambda i: (i[:, :, 1] > 40) & (i[:, :, 0] < 80) & (i[:, :, 2] < 80))
+    thorax = blob_area(lambda i: (i[:, :, 0] > 40) & (i[:, :, 1] < 60) & (i[:, :, 2] < 60))
+    assert head > 500, f"head not visible (head={head} px)"
+    # camera at +x: the head (18 deg) hides the collinear thorax (7 deg)
+    assert thorax < 50, (
+        f"thorax {thorax} px visible around the head: the camera is on the "
+        f"-x side (pre-fix MuJoCo free-camera placement)")
 
 
 def _test_frame() -> np.ndarray:
