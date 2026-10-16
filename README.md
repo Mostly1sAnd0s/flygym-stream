@@ -151,7 +151,9 @@ record).
 - **Video pane**: drag to orbit (azimuth/elevation), scroll to zoom. The
   viewcube (top-right) snaps the orbit to a world direction — `front` is
   +x, the direction the fly faces at rest — and the cube tracks the live
-  camera (not the fly), so it only moves when the camera does. The camera
+  camera (not the fly), so it only moves when the camera does. Clicking a
+  face moves the camera normal to that face: side faces land level
+  (horizon straight), top/bottom look straight down/up (the zoom is kept). The camera
   row switches the camera mode: `orbit` (free), `1st` (level, above the
   fly's centroid, looking along its heading) and `3rd` (30 deg above the
   horizontal, trailing behind, looking at the fly); the body views follow

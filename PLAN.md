@@ -611,6 +611,18 @@ protocol/app/gpu suites +≤ 100 each.
     spec above: centroid-anchored, level, 30 deg, world-direction faces,
     cube top-right with padding and camera-only tracking (the telemetry
     heading hook is gone).
+  - v3 user-feedback fix: clicking a viewcube face left the camera TILTED
+    (side snaps kept the previous elevation, top/bottom kept the azimuth,
+    so the clicked face was not normal to the view). `set_orbit_view` now
+    snaps to a canonical (az, el) per face so the camera sits NORMAL to
+    the clicked face: front (0, 0), back (180, 0), left (90, 0),
+    right (−90, 0) — all level; top (0, +89), bottom (0, −89) — straight
+    up/down from canonical azimuth 0 (no in-plane face rotation). The
+    zoom (distance) is still kept. Verified: rewritten tiny-scene test
+    (side snaps from a −20° orbit land at el 0; top/bottom land at az 0),
+    GPU suite green, live real-scene probe: rendered camera offset after
+    each snap is exactly the face's world normal (+x/−x/+y/−y, ±z within
+    the 1° gimbal clamp).
 
 **7.10 Risks & decisions**:
 - Runtime scene rebuild: out of scope v1 (process restart; decision).

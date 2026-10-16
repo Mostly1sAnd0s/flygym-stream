@@ -290,20 +290,20 @@ class Scene:
         self._camera_mode = mode
 
     def set_orbit_view(self, view: str) -> None:
-        """Snap the orbit to a world viewcube direction (protocol.
-        CAMERA_VIEWS) and switch to orbit mode: front/back/left/right set
-        the world azimuth (front = +x, the fly's rest heading; left = +y);
-        top/bottom snap the elevation, keeping the azimuth."""
+        """Snap the orbit so the camera sits NORMAL to the clicked world
+        viewcube face (protocol.CAMERA_VIEWS) and switch to orbit mode:
+        side faces snap level (el 0; front = +x, the fly's rest heading;
+        left = +y), top/bottom snap straight up/down from the canonical
+        azimuth 0 (no in-plane face rotation) — no tilt or rotation is
+        inherited from the previous view; the zoom (distance) is kept."""
         from flygym_stream.protocol import CAMERA_VIEWS
         if view not in CAMERA_VIEWS:
             raise ValueError(f"camera view {view!r} not in {CAMERA_VIEWS}")
-        azimuths = {"front": 0.0, "back": 180.0, "left": 90.0, "right": -90.0}
-        if view in azimuths:
-            self._azimuth = azimuths[view]
-        elif view == "top":
-            self._elevation = MAX_ORBIT_ELEVATION_DEG
-        else:  # bottom
-            self._elevation = -MAX_ORBIT_ELEVATION_DEG
+        snaps = {"front": (0.0, 0.0), "back": (180.0, 0.0),
+                 "left": (90.0, 0.0), "right": (-90.0, 0.0),
+                 "top": (0.0, MAX_ORBIT_ELEVATION_DEG),
+                 "bottom": (0.0, -MAX_ORBIT_ELEVATION_DEG)}
+        self._azimuth, self._elevation = snaps[view]
         self._camera_mode = "orbit"
 
     def camera_pose(self) -> tuple[np.ndarray, np.ndarray]:

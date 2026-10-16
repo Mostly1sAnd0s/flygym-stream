@@ -233,27 +233,34 @@ def test_fly_forward_and_heading_follow_the_root() -> None:
     assert s.fly_heading_deg() == pytest.approx(90.0)
 
 
-def test_viewcube_snaps_to_world_directions() -> None:
+def test_viewcube_snaps_normal_to_the_clicked_face() -> None:
     s = make_cam_tiny_scene()
     s.set_orbit_camera(azimuth=30.0, elevation=-20.0, distance_mm=200.0)
     # The viewcube faces are WORLD directions (front = +x, the direction
     # the fly faces at rest; left = +y), so the cube tracks the camera,
-    # never the fly: the snaps do not move when the fly turns.
+    # never the fly. Each face snap places the camera NORMAL to that face:
+    # side faces snap level (el 0, so no tilt is inherited from the
+    # previous view), top/bottom snap straight up/down from the canonical
+    # azimuth 0 (no in-plane face rotation); the zoom is kept.
     s.set_orbit_view("front")
     assert s.camera_mode == "orbit"
     assert s.orbit[0] == pytest.approx(0.0)
-    assert s.orbit[1] == pytest.approx(-20.0)  # view keeps the elevation
-    assert s.orbit[2] == pytest.approx(200.0)  # ... and the distance
+    assert s.orbit[1] == pytest.approx(0.0)  # level: normal to the face
+    assert s.orbit[2] == pytest.approx(200.0)  # the zoom is kept
     s.set_orbit_view("back")
     assert s.orbit[0] == pytest.approx(180.0)
+    assert s.orbit[1] == pytest.approx(0.0)
     s.set_orbit_view("left")
     assert s.orbit[0] == pytest.approx(90.0)   # camera on the +y side
+    assert s.orbit[1] == pytest.approx(0.0)
     s.set_orbit_view("right")
     assert s.orbit[0] == pytest.approx(-90.0)
+    assert s.orbit[1] == pytest.approx(0.0)
     s.set_orbit_view("top")
-    assert s.orbit[0] == pytest.approx(-90.0)  # azimuth kept
+    assert s.orbit[0] == pytest.approx(0.0)  # canonical azimuth: face unrotated
     assert s.orbit[1] == pytest.approx(scene_mod.MAX_ORBIT_ELEVATION_DEG)
     s.set_orbit_view("bottom")
+    assert s.orbit[0] == pytest.approx(0.0)
     assert s.orbit[1] == pytest.approx(-scene_mod.MAX_ORBIT_ELEVATION_DEG)
     # Fly turns 90 deg (heading 90): the world snaps are unchanged.
     s.mj_data.qpos[3:7] = [math.cos(math.pi / 4), 0.0, 0.0,
