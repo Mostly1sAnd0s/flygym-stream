@@ -623,6 +623,20 @@ protocol/app/gpu suites +≤ 100 each.
     GPU suite green, live real-scene probe: rendered camera offset after
     each snap is exactly the face's world normal (+x/−x/+y/−y, ±z within
     the 1° gimbal clamp).
+  - v4 user-feedback fix: the viewcube rotated OPPOSITE to the camera/fly.
+    Root cause: the CSS screen frame (x right, y DOWN, z toward viewer) is
+    left-handed, so the standard CSS-cube face layout renders a MIRROR of
+    the world cube — the label fronting the viewer was correct at every
+    instant (the snaps worked) but the cube's 3D shape was mirrored, so its
+    rotational motion was inverted relative to the fly (e.g. at az 0 the
+    "left" label sat on the screen right). Fix: (a) swap the left/right
+    face transforms in style.css (#vc-left rotateY(90deg), #vc-right
+    rotateY(-90deg)); (b) flip the azimuth sign in app.js updateViewcube
+    (rotateX(−el) rotateY(−az)). The cube is now CONGRUENT with the world:
+    verified numerically against the orbit-camera world→screen mapping on a
+    40-point (az, el) grid — zero error for all six faces' normals + label
+    right/up axes (the old layout's max error 2.0). ui_smoke +2 checks
+    (style.css face layout; flipped transform string).
 
 **7.10 Risks & decisions**:
 - Runtime scene rebuild: out of scope v1 (process restart; decision).

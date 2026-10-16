@@ -332,10 +332,16 @@ button:active { background: #343a45; }
   user-select: none;
 }
 .cube .face:hover { background: rgba(46, 74, 106, 0.9); }
-/* standard CSS-cube face placement (half = 28px) */
+/* viewcube face placement: the LEFT/RIGHT transforms are swapped vs the
+   standard CSS cube. The CSS screen frame (x right, y DOWN, z toward viewer)
+   is left-handed, so the standard layout renders a MIRROR of the world
+   cube: labels fronted correctly but the cube rotates opposite to the
+   fly. With the swap (and the azimuth sign flip in app.js updateViewcube)
+   the cube is congruent with the world — verified numerically against the
+   orbit-camera world->screen mapping for all faces' normals + label axes. */
 #vc-front  { transform: rotateY(0deg)    translateZ(28px); }
 #vc-back   { transform: rotateY(180deg)  translateZ(28px); }
-#vc-left   { transform: rotateY(-90deg)  translateZ(28px); }
-#vc-right  { transform: rotateY(90deg)   translateZ(28px); }
+#vc-left   { transform: rotateY(90deg)   translateZ(28px); }
+#vc-right  { transform: rotateY(-90deg)  translateZ(28px); }
 #vc-top    { transform: rotateX(90deg)   translateZ(28px); }
 #vc-bottom { transform: rotateX(-90deg)  translateZ(28px); }

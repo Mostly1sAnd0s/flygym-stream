@@ -290,15 +290,20 @@ function wrap180(deg) {
 }
 
 /* The viewcube is a CSS 3D cube whose faces are the world camera directions
- * (M7.7: front = +x, the direction the fly faces at rest). Rotating it by
- * rotateX(-el) rotateY(az) brings the face the camera is on to the front
- * (verified face math); it is driven ONLY by the status orbit (the camera),
- * never by the fly, so it does not shake while the fly moves. */
+ * (M7.7: front = +x, the direction the fly faces at rest). The CSS screen
+ * frame is left-handed, so the faces are placed world-congruent (style.css:
+ * left/right swapped vs the standard CSS cube) and the azimuth sign is
+ * FLIPPED here — rotateX(-el) rotateY(-az) makes the cube rotate the SAME
+ * way as the world/fly (the unflipped transform showed the right label
+ * fronted but swung the cube opposite to the camera; verified numerically
+ * against the orbit-camera world->screen mapping). It is driven ONLY by the
+ * status orbit (the camera), never by the fly, so it does not shake while
+ * the fly moves. */
 function updateViewcube() {
   const cube = $("cube");
   if (!cube) return;
   cube.style.transform =
-    `rotateX(${-state.orbit.elevation}deg) rotateY(${wrap180(state.orbit.azimuth)}deg)`;
+    `rotateX(${-state.orbit.elevation}deg) rotateY(${wrap180(-state.orbit.azimuth)}deg)`;
 }
 
 function updateOrbitHud() {

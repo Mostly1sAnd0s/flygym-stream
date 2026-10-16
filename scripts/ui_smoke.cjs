@@ -15,6 +15,7 @@ const root = path.join(__dirname, "..");
 const appJs = fs.readFileSync(path.join(root, "web", "app.js"), "utf8");
 const sandboxJs = fs.readFileSync(path.join(root, "web", "app_sandbox.js"), "utf8");
 const indexHtml = fs.readFileSync(path.join(root, "web", "index.html"), "utf8");
+const styleCss = fs.readFileSync(path.join(root, "web", "style.css"), "utf8");
 
 /* --- minimal fake DOM ------------------------------------------------------ */
 class El {
@@ -167,9 +168,16 @@ const __harness = (async function () {
         \`status builds the 42 classic sliders (got \${els.get("sliders").children.length})\`);
 
   /* --- M7.7 camera: mode row + viewcube ----------------------------------- */
+  /* The cube must be CONGRUENT with the world (not a mirror): with the
+     CSS screen frame left-handed, the left/right face transforms are
+     swapped vs the standard CSS cube and the azimuth sign is flipped,
+     else the cube rotates opposite to the fly (v4 fix). */
+  check(/#vc-left\\s*\\{[^}]*rotateY\\(90deg\\)/.test(styleCss)
+        && /#vc-right\\s*\\{[^}]*rotateY\\(-90deg\\)/.test(styleCss),
+        "style.css viewcube faces are the world-congruent (unmirrored) layout");
   check(els.get("cube").style.transform
-        === "rotateX(20deg) rotateY(30deg)",
-        "viewcube tracks the camera (az 30, el -20); got "
+        === "rotateX(20deg) rotateY(-30deg)",
+        "viewcube tracks the camera (az 30, el -20, azimuth sign flipped); got "
         + els.get("cube").style.transform);
   check(els.get("orbit-state").textContent.indexOf("cam orbit") === 0,
         "orbit HUD reports the camera mode");
@@ -380,6 +388,7 @@ const src = [
   `const els = globalThis.__els;`,
   `const modelInfo = globalThis.__modelInfo;`,
   `const check = globalThis.__check;`,
+  `const styleCss = globalThis.__styleCss;`,
   appJs,
   sandboxJs,
   harness,
@@ -390,6 +399,7 @@ globalThis.__modelInfo = modelInfo;
 globalThis.__check = check;
 globalThis.__N = N;
 globalThis.__flushRaf = flushRaf;
+globalThis.__styleCss = styleCss;
 
 let pending;
 try {
