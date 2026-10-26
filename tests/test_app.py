@@ -421,3 +421,30 @@ def test_ws_vision_frames_pass_through(
                 assert got == b"V1\xff\xd8fakejpeg"
     finally:
         sim.stop()
+
+
+def test_ws_viewer_join_leave_drives_idle_sim(tmp_config, fake_backend,
+                                              fake_renderer) -> None:
+    """2026-10 CPU fix: with the serve idle policy the sim freezes while
+    no client is connected, resumes (fresh pacing) when one connects —
+    the first status the client receives reflects the resume — and
+    freezes again on disconnect."""
+    frames, inputs = FrameQueue(), InputQueue()
+    sim = SimThread(fake_backend, fake_renderer, frames, inputs, tmp_config,
+                    idle=True)
+    sim.start()
+    app = create_app(tmp_config, Producer(frames, inputs, fake_backend, sim))
+    try:
+        assert sim.paused  # idle before any client connects
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws") as ws:
+                ws.send_text(HELLO)
+                assert recv_status(ws)["paused"] is False  # join resumed it
+                assert recv_frame(ws).startswith(b"JPEG-")
+            wait_for(lambda: sim.paused)  # leave froze it again
+            with client.websocket_connect("/ws") as ws:
+                ws.send_text(HELLO)
+                assert recv_status(ws)["paused"] is False
+                assert recv_frame(ws).startswith(b"JPEG-")
+    finally:
+        sim.stop()

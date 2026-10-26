@@ -5,7 +5,9 @@ injection so tests can wire FakeBackend/FakeRenderer (PLAN.md Phase 5).
 Protocol: hello handshake -> status; binary JPEG frames out (~config fps);
 control JSON in (decoded by protocol.decode_control, bad input closes with
 1008 without killing the server); a second concurrent client is rejected
-with close 1013 / "single-client"; disconnect leaves the sim thread up.
+with close 1013 / "single-client"; disconnect leaves the sim thread up
+(with ``idle=True`` the sim itself freezes while no viewer is connected —
+2026-10 CPU fix).
 """
 
 from __future__ import annotations
@@ -263,6 +265,7 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
             return
         active.append(websocket)
         session: WebRtcSession | None = None
+        viewer = False  # idle policy: the sim runs only while a viewer is up
         try:
             raw = await websocket.receive_text()
             try:
@@ -274,6 +277,8 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
             if not isinstance(hello, Hello):
                 await websocket.close(1008, "hello expected as first message")
                 return
+            producer.sim.viewer_joined()  # idle -> running (rebased pacing)
+            viewer = True
             await websocket.send_text(_status(fps_box[0]))
             if producer.model_info is not None:
                 await websocket.send_text(
@@ -296,6 +301,8 @@ def create_app(config: Config, producer: Producer) -> FastAPI:
             if session is not None:
                 await session.close()
             active.clear()
+            if viewer:
+                producer.sim.viewer_left()
 
     # Registered last: / and /healthz above take precedence, everything else
     # (style.css, app.js, ...) resolves against the web/ directory.

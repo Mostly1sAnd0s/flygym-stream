@@ -24,14 +24,14 @@ from flygym_stream.stream import FrameQueue, InputQueue
 
 logger = logging.getLogger(__name__)
 MAX_CATCHUP_STEPS = 2000  # per-tick cap: avoid pathological catch-up spirals
+IDLE_SLEEP_S = 0.05  # paused/idle wake rate (pacing rebases on resume)
 
 
 class Backend(ABC):
     """Stepping interface shared by the CPU and GPU paths.
 
-    ``apply_input`` only receives simulation-affecting messages
-    (Actuator, ActuatorSet, Neutral, Orbit); loop-control messages are
-    dispatched by SimThread itself.
+    ``apply_input`` only receives simulation-affecting messages (Actuator,
+    ActuatorSet, Neutral, Orbit); loop-control goes through SimThread.
     """
 
     dt: float
@@ -111,13 +111,11 @@ class MuJoCoBackend(Backend):
         elif isinstance(msg, ActuatorSet):
             self._scene.set_actuators(msg.values)
         elif isinstance(msg, Neutral):
-            # Full neutral state (qpos/qvel/ctrl) + rest anchor: the
-            # mode-row neutral button returns the fly to its standing
-            # reference pose, not just its ctrl.
+            # Full neutral state (qpos/qvel/ctrl) + rest anchor: the mode
+            # row returns the standing reference pose, not just ctrl.
             self._scene.neutral_restore()
         elif isinstance(msg, Orbit):
-            # A manual orbit means orbit mode (a body view captures its
-            # effective camera first, then the client's values win).
+            # A manual orbit means orbit mode (body views capture first).
             self._scene.set_camera_mode("orbit")
             self._scene.set_orbit_camera(azimuth=msg.azimuth, elevation=msg.elevation,
                                          distance_mm=msg.distance)
@@ -139,12 +137,9 @@ class MuJoCoBackend(Backend):
         self._scene.set_rest_anchor(active)
 
     def apply_state(self, msg: InputMessage) -> None:
-        """Apply a state message through the Scene surface (M7.2).
-
-        Raises:
-            ValueError: If the scene cannot honor it (e.g. spawn on a
-                pinned root, unknown keyframe/body, non-adhesion leg).
-        """
+        """Apply a state message through the Scene surface (M7.2). The
+        scene raises ValueError when it cannot honor one (pinned-root
+        spawn, unknown keyframe/body, non-adhesion leg)."""
         if isinstance(msg, SetState):
             self._scene.apply_state_arrays(msg.qpos, msg.qvel, msg.ctrl)
         elif isinstance(msg, Spawn):
@@ -165,11 +160,10 @@ class MuJoCoBackend(Backend):
 class MJWarpBackend(Backend):
     """GPU stepping via MJWarp (optional 'gpu' extra + NVIDIA CUDA).
 
-    The GPU stack is imported lazily so the service runs CPU-only by
-    default. After every step the GPU state is written back to the CPU
-    MjData the (CPU-side) renderer reads. Models compiled with MuJoCo's
-    NoSlip solver are refused (no released mujoco-warp implements it, and
-    the default fly scene uses it — use ``--backend cpu``, PLAN.md P6).
+    Lazy import so the service runs CPU-only by default; after every step
+    the GPU state mirrors back to the CPU MjData the renderer reads.
+    NoSlip-solver models are refused (mujoco-warp lacks it; the default fly
+    scene uses it — use ``--backend cpu``, PLAN.md P6).
     """
 
     def __init__(self, scene: Scene) -> None:
@@ -193,9 +187,8 @@ class MJWarpBackend(Backend):
         self._wp = wp
         self._scene = scene
         m = scene.mj_model
-        # mjwarp pre-allocates contact/constraint buffers on the GPU; its
-        # built-in heuristic underestimates for the fly model (94 resting
-        # contacts), so size them from a short CPU warm-up instead.
+        # Size GPU contact buffers from a CPU warm-up: mjwarp's built-in
+        # heuristic underestimates the fly model's 94 resting contacts.
         self._m = mjw.put_model(m)
         nconmax = _nconmax(m, scene.mj_data)
         self._d = mjw.put_data(m, scene.mj_data, nconmax=nconmax, njmax=2 * nconmax)
@@ -301,15 +294,17 @@ class SimThread:
     """Runs the sim loop on its own thread (or tick-by-tick in tests).
 
     tick(): drain inputs -> dispatch -> (if not paused) step as many
-    substeps as wall clock demands at ``playback_speed`` -> if the
-    renderer says a frame is due, render + encode + push to FrameQueue.
+    substeps as wall clock demands at ``playback_speed`` -> render +
+    encode + push to FrameQueue when a frame is due. ``idle=True``: no
+    stepping while no viewer is connected (serve; 2026-10 CPU fix).
     """
 
     def __init__(self, backend: Backend, renderer: object, frames: FrameQueue,
                  inputs: InputQueue, config: Config, *, clock=time.monotonic,
                  sleep=time.sleep, loco: object | None = None,
                  telemetry: object | None = None, vision: object | None = None,
-                 vision_queue: object | None = None) -> None:
+                 vision_queue: object | None = None,
+                 idle: bool = False) -> None:
         self._backend = backend
         self._renderer = renderer
         self._frames = frames
@@ -317,7 +312,9 @@ class SimThread:
         self._speed = float(config.playback_speed)
         self._clock = clock
         self._sleep = sleep
-        self._paused = False
+        self._user_paused = False
+        self._idle = idle  # serve: no stepping while no viewer is connected
+        self._viewers = 0
         self._stop_evt = threading.Event()
         self._thread: threading.Thread | None = None
         self._loco = loco  # M7.3 pattern engine (None = no built-in gait)
@@ -348,7 +345,7 @@ class SimThread:
 
     @property
     def paused(self) -> bool:
-        return self._paused
+        return self._user_paused or (self._idle and self._viewers <= 0)
 
     @property
     def loco_mode(self) -> str:
@@ -357,12 +354,22 @@ class SimThread:
 
     def pause(self) -> None:
         """Freeze the sim loop (PLAN.md §3 ``pause``)."""
-        self._paused = True
+        self._user_paused = True
 
     def resume(self) -> None:
         """Unfreeze the sim loop, re-anchoring pacing (``resume``)."""
-        self._paused = False
+        self._user_paused = False
         self._rebase()
+
+    def viewer_joined(self) -> None:
+        """A client connected: idle=True, 0->1 resumes (rebased: no burst)."""
+        self._viewers += 1
+        if self._idle and self._viewers == 1:
+            self._rebase()
+
+    def viewer_left(self) -> None:
+        """A client disconnected: at 0 viewers the idle sim freezes."""
+        self._viewers -= 1
 
     def set_speed(self, speed: float) -> None:
         """Change playback speed live, re-anchoring the wall-clock base."""
@@ -373,7 +380,7 @@ class SimThread:
 
     def step(self, n: int) -> None:
         """While paused: drain inputs, advance exactly n substeps, render."""
-        if not self._paused:
+        if not self.paused:
             raise RuntimeError("step(n) requires a paused sim (send pause first)")
         if n < 1:
             raise ValueError(f"n must be >= 1, got {n}")
@@ -386,8 +393,7 @@ class SimThread:
     def reset(self) -> None:
         """Reset model + renderer, then re-anchor pacing. A reset rewinds
         sim time to 0, so the telemetry/vision sim-time pacing state must
-        re-base with it or the streams stay silent until sim time crawls
-        back up (2026-07-21: telemetry was dead after a WS ``reset``)."""
+        re-base with it (2026-07-21: telemetry died after a WS ``reset``)."""
         self._backend.reset()
         self._renderer.reset()
         self._next_telemetry = 0.0
@@ -398,12 +404,13 @@ class SimThread:
     def _run(self) -> None:
         while not self._stop_evt.is_set():
             self.tick()
-            self._sleep(self._backend.dt)
+            # Paused/idle: slower wake (pacing rebases on resume).
+            self._sleep(IDLE_SLEEP_S if self.paused else self._backend.dt)
 
     def tick(self) -> None:
         """One loop iteration: drain, pace, step, render-if-due."""
         self._drain_inputs()
-        if self._paused or self._stop_evt.is_set():
+        if self.paused or self._stop_evt.is_set():
             return
         target = self._t0_sim + (self._clock() - self._t0_wall) * self._speed
         due = int(round((target - self._backend.time) / self._backend.dt))
@@ -455,8 +462,6 @@ class SimThread:
             self._backend.apply_input(msg)
         elif isinstance(msg, (SetState, Spawn, Force, Param, Keyframe,
                               Adhesion)):
-            # Research-sandbox state writes (M7.2): a rejection must not
-            # kill the sim thread — log and keep stepping.
             try:
                 self._backend.apply_state(msg)
             except (ValueError, NotImplementedError) as err:
@@ -466,32 +471,26 @@ class SimThread:
         elif isinstance(msg, Speed):
             self.set_speed(msg.value)
         elif isinstance(msg, (Mode, Loco)):
-            # Locomotion mode/tuning (M7.3): rejections must not kill the
-            # sim thread — log and keep stepping.
             if self._loco is None:
-                logger.warning("locomotion message ignored (no pattern "
-                               "engine on this sim)")
+                logger.warning("locomotion message ignored (no pattern engine)")
             else:
                 try:
                     if isinstance(msg, Mode):
                         self._loco.set_mode(msg.value)
-                        # Rest state (M7.3): neutral holds the reference
-                        # pose (rest anchor on); walk/flap/manual release
-                        # the root to free physics.
+                        # neutral holds the reference pose (rest anchor on);
+                        # walk/flap/manual release the root to free physics.
                         self._backend.set_rest_anchor(msg.value == "neutral")
                         if msg.value == "neutral":
-                            # Full neutral state (qpos/qvel/ctrl): the
-                            # mode-row neutral returns the fly to its
-                            # standing reference pose, wherever it is.
+                            # Full neutral state (qpos/qvel/ctrl): the mode
+                            # row returns the fly's standing pose.
                             self._backend.apply_input(Neutral())
                     else:
                         self._loco.set_params(msg.freq, msg.amplitude,
                                               msg.phase)
                 except ValueError as err:
                     logger.warning("locomotion message rejected: %s", err)
-        elif isinstance(msg, Step) and self._paused:
+        elif isinstance(msg, Step) and self.paused:
             self.step(msg.n)
-        # Hello: handshake is the app layer's job (PLAN.md §3).
 
     def _push_frame(self, force: bool = False) -> None:
         if not force and not self._renderer.render_as_needed():

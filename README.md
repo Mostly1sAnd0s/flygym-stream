@@ -77,6 +77,13 @@ Then open <http://127.0.0.1:8765> in a browser
 access on a headless server: `serve --bind 0.0.0.0 --insecure`, then
 open `http://<server-LAN-IP>:8765` (see "Accessing across the LAN").
 
+**Idle behavior (2026-10-16):** `serve` idles at ~0 CPU while no client
+is connected — the sim freezes when the last viewer disconnects and
+resumes (with fresh pacing, no catch-up burst) when one connects. An
+explicit `pause` still wins over the viewer cycle, and `healthz`/status
+report `paused: true` while idle. Without this, an unattended service
+burned ~80% of a core stepping 10 kHz physics substeps nobody watches.
+
 ### Phase 6 stretch status
 
 - **Depth overlay**: `serve --overlay depth` blends a blue-cyan depth tint

@@ -143,7 +143,7 @@ def serve(args: argparse.Namespace) -> None:
         vision_frames = FrameQueue()
     sim = SimThread(backend, renderer, frames, inputs, config, loco=loco,
                     telemetry=telemetry, vision=vision_feed,
-                    vision_queue=vision_frames)
+                    vision_queue=vision_frames, idle=True)
     sim.start()
     app = create_app(config, Producer(frames, inputs, backend, sim,
                                       telemetry_queue=telemetry.queue,

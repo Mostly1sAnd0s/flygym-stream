@@ -665,6 +665,28 @@ protocol/app/gpu suites +≤ 100 each.
     clamp; the sim-backend test asserts orbit az 10 → cam 190; the
     real-fly body views (network) assert the intended placements.
 
+**M7.11 Idle CPU (2026-10-16)**: `serve` burned ~80% of a core with
+zero clients connected: the sim steps at real time (10 kHz substeps at
+the 100 µs model timestep ≈ 69% of a core), the loop thread spins at
+`sleep(dt)` ≈ 6.7k it/s, and render+JPEG still produced 30 fps into the
+never-drained FrameQueue. Fix (viewer-driven idling): `SimThread` gains
+`idle: bool` (used only by `cli serve`) — `paused` is now
+`user_paused or (idle and viewers <= 0)`; the app layer drives
+`viewer_joined()`/`viewer_left()` around the WS handler (hello accepted
+→ join; `finally` → leave, counted per connected client), and a 0→1
+join rebases pacing (no catch-up burst after idling). The loop thread
+sleeps `IDLE_SLEEP_S` (50 ms) instead of `dt` while paused/idle (also
+fixes the spin during an explicit user pause). An explicit user pause
+survives a viewer cycle; `step(n)` and state/orbit/camera messages still
+apply while idle-paused. No render/telemetry/vision gate is needed: all
+three are sim-time-paced, so a frozen sim produces nothing (the EGL
+context is also left untouched while idle). Verified: default suite
+191 passed (+8 new in tests/test_idle.py + the e2e viewer-cycle test in
+test_app.py); GPU 20 + network 21 passed; live serve: idle CPU 0% over
+30 s windows (was 80.6%), `healthz` `paused: true` while idle, connect →
+`paused: false` + 28.5 fps JPEG stream + ~10 Hz telemetry, disconnect →
+`paused: true` and 0% CPU again. simulation.py 498 lines (< 500).
+
 **7.10 Risks & decisions**:
 - Runtime scene rebuild: out of scope v1 (process restart; decision).
 - 133 sliders: virtualization + coalesced sends; DOM never holds > 40
