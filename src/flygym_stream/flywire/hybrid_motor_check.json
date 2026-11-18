@@ -1,0 +1,94 @@
+{
+  "data": {
+    "neurons_csv": "../Data/neurons.csv",
+    "connections_csv": "../Data/connections_princeton.csv",
+    "unmapped_transmitters": "disable",
+    "exclude_super_classes": [
+      "glia",
+      "trachea",
+      "not_a_neuron"
+    ]
+  },
+  "columns": {
+    "neuron_id": "Root ID",
+    "verified_nt": "Verified NT type",
+    "predicted_nt": "Predicted NT type",
+    "pre": "pre_root_id",
+    "post": "post_root_id",
+    "count": "syn_count"
+  },
+  "populations": {
+    "input_left": [
+      "720575941566493282"
+    ],
+    "input_right": [
+      "720575941433155799"
+    ],
+    "output_left": [
+      "720575941433155799"
+    ],
+    "output_right": [
+      "720575941566493282"
+    ]
+  },
+  "nt_class_map": {
+    "ACH": "exc",
+    "acetylcholine": "exc",
+    "cholinergic": "exc",
+    "GABA": "inh",
+    "GABAergic": "inh",
+    "gaba,nitric_oxide": "inh",
+    "dopamine,gaba": "inh",
+    "gaba,serotonin": "inh",
+    "acetylcholine,dopamine,nitric_oxide": "exc",
+    "acetylcholine,nitric_oxide": "exc",
+    "acetylcholine,serotonin": "exc",
+    "acetylcholine,octopamine": "exc",
+    "acetylcholine,dopamine": "exc"
+  },
+  "neuron_class_overrides": {},
+  "neural": {
+    "unit_conductance_nS": 0.3,
+    "capacitance_pF": 200.0,
+    "leak_nS": 10.0,
+    "rest_mV": -65.0,
+    "reset_mV": -65.0,
+    "threshold_mV": -50.0,
+    "exc_reversal_mV": 0.0,
+    "inh_reversal_mV": -80.0,
+    "refractory_ms": 2.0,
+    "synapse_decay_ms": 5.0,
+    "release_fraction": 0.5,
+    "rate_filter_ms": 50.0
+  },
+  "decoder": {
+    "baseline": [
+      0.0,
+      0.0
+    ],
+    "gain_per_hz": [
+      0.025,
+      0.025
+    ],
+    "minimum": 0.0,
+    "maximum": 1.2
+  },
+  "stimulus": {
+    "amplitude_pA": 700.0,
+    "baseline_pA": 0.0,
+    "switch_every_s": 1.5,
+    "source_xy_mm": [
+      6.0,
+      3.0
+    ],
+    "odor_sigma_mm": 6.0
+  },
+  "model_notes": {
+    "status": "Initial real-connectome integration; incomplete fast-transmitter approximation, not a validated full-CNS simulation.",
+    "inputs": "DIAGNOSTIC ONLY: direct artificial current into real left/right DNp09, not sensory input.",
+    "outputs": "Right DNp09 -> left controller drive; left DNp09 -> right controller drive. Engineered steering mapping; verify its sign in this body. Not a literal VNC motor mapping.",
+    "transmitters": "Verified labels take priority. ACh/GABA fast effects only; explicitly listed cotransmitter combinations retain ACh/GABA and omit modulatory effects. GLUT, HIST, pure modulators, unknown and ambiguous fast mixtures have disabled outgoing effects. All retained nodes still have LIF state.",
+    "controller": "Zero baseline drive: no hidden fallback movement when DNp09 stays silent.",
+    "scope": "All non-excluded metadata nodes and matched edges loaded, including VNC if present in the connection file. Descending readout bypasses VNC-to-muscle actuation."
+  }
+}

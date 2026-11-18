@@ -1,0 +1,17 @@
+{
+  "stem_length_mm": 18.0,
+  "arm_length_mm": 22.0,
+  "corridor_width_mm": 12.0,
+  "branch_angle_deg": 45.0,
+  "wall_height_mm": 5.0,
+  "wall_thickness_mm": 0.5,
+  "start_margin_mm": 5.0,
+  "choice_start_fraction": 0.65,
+  "choice_dwell_s": 0.25,
+  "odor_sigma_mm": 12.0,
+  "source_fraction": 0.85,
+  "scripted_speed": 1.0,
+  "steering_gain": 0.8,
+  "steering_sign": 1.0,
+  "waypoint_lookahead_mm": 4.0
+}

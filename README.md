@@ -5,6 +5,10 @@ streamed as MJPEG over WebSocket to a thin browser front end. All simulation
 and rendering happens on the GPU server; the client needs only a web browser.
 See [PLAN.md](PLAN.md) for the full design.
 
+Optional connectome-driven streaming: see [FLYWIRE.md](FLYWIRE.md) for
+the GPU neural model, data setup, preserved experiment tools and validation.
+Existing serve commands and deployment files retain their default behavior.
+
 ## Server environment (validated Phase 0, 2026-10-14)
 
 - Ubuntu 26.04.1 LTS (x86-64), NVIDIA GeForce RTX 5090, driver 615.71.09
