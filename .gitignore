@@ -5,3 +5,8 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Connectome datasets and experiment outputs stay local.
+Data/
+**/flywire/Outputs/
+logs/flywire/

@@ -5,9 +5,10 @@ Commands:
     serve           run the MJPEG-over-WebSocket streaming service (Phase 5)
     fetch-assets    force the one-time flygym S3 asset prefetch (Phase 5)
 
-All commands refuse to start without MUJOCO_GL=egl /
+By default, commands refuse to start without MUJOCO_GL=egl /
 PYOPENGL_PLATFORM=egl (PLAN.md §6) — mujoco reads them at import time, so
-they must be exported before this process starts.
+they must be exported before this process starts. The explicit serve
+--local-windows option uses GLFW for laptop testing instead.
 """
 
 from __future__ import annotations
@@ -19,8 +20,16 @@ import sys
 REQUIRED_GL_VARS = ("MUJOCO_GL", "PYOPENGL_PLATFORM")
 
 
-def require_gl_env() -> None:
+def require_gl_env(*, local_windows: bool = False) -> None:
     """Exit with a helpful message unless the headless GL env is set."""
+    if local_windows:
+        if sys.platform != "win32":
+            sys.exit("--local-windows is for Windows testing; use EGL on the Linux server")
+        # Set before any MuJoCo/PyOpenGL imports. GLFW creates the local
+        # offscreen context; the browser remains the simulation viewer.
+        os.environ["MUJOCO_GL"] = "glfw"
+        os.environ.pop("PYOPENGL_PLATFORM", None)
+        return
     missing = [v for v in REQUIRED_GL_VARS if os.environ.get(v) != "egl"]
     if missing:
         sys.exit(
@@ -114,12 +123,18 @@ def serve(args: argparse.Namespace) -> None:
                     overlay=args.overlay, transport=args.transport,
                     telemetry_hz=args.telemetry_hz)
     from flygym_stream.scenes import build_scene
-    scene = build_scene(scene_config_from_args(args))
-    backend = make_backend(scene, config)
+    if args.flywire_config:
+        from flygym_stream.flywire.streaming import build_streaming_backend
+        scene, backend = build_streaming_backend(args)
+    else:
+        scene = build_scene(scene_config_from_args(args))
+        backend = make_backend(scene, config)
     renderer = OffscreenRenderer(scene, config)
     frames, inputs = FrameQueue(), InputQueue()
     loco = None
-    if not args.musculoskeletal:
+    if args.flywire_config:
+        pass  # the connectome drives the original hybrid gait controller
+    elif not args.musculoskeletal:
         from flygym_stream.locomotion import LocController
         loco = LocController(scene.mj_model, scene.neutral_actuators(),
                              fly_name=scene.fly_name)
@@ -156,6 +171,8 @@ def serve(args: argparse.Namespace) -> None:
     finally:
         sim.stop()
         renderer.close()
+        if args.flywire_config:
+            backend.close()
 
 
 def fetch_assets(args: argparse.Namespace) -> None:
@@ -184,6 +201,8 @@ def main(argv: list[str] | None = None) -> None:
     rp.set_defaults(func=render_preview)
 
     sv = sub.add_parser("serve", help="run the streaming service (Phase 5)")
+    sv.add_argument("--local-windows", action="store_true",
+                    help="use local Windows GLFW rendering instead of Linux EGL")
     sv.add_argument("--bind", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8765)
     sv.add_argument("--width", type=int, default=1280)
@@ -228,13 +247,21 @@ def main(argv: list[str] | None = None) -> None:
                     help="telemetry message rate in Hz (0 = off; M7.4)")
     sv.add_argument("--insecure", action="store_true",
                     help="allow binding 0.0.0.0 (PLAN.md §6)")
+    sv.add_argument("--flywire-config", default=os.environ.get("FLYWIRE_CONFIG"),
+                    help="Eon profile path; enables connectome-driven streaming")
+    sv.add_argument("--neural-backend", choices=["cpu", "gpu"],
+                    default=os.environ.get("FLYWIRE_NEURAL_BACKEND", "gpu"))
+    sv.add_argument("--flywire-seed", type=int, default=0)
+    sv.add_argument("--flywire-condition", default="sensory",
+                    choices=["sensory", "no-input", "direct-output", "disconnect-output"])
+    sv.add_argument("--flywire-output", default=os.environ.get("FLYWIRE_OUTPUT", "logs/flywire"))
     sv.set_defaults(func=serve)
 
     fa = sub.add_parser("fetch-assets", help="prefetch flygym assets (Phase 5)")
     fa.set_defaults(func=fetch_assets)
 
     args = parser.parse_args(argv)
-    require_gl_env()
+    require_gl_env(local_windows=getattr(args, "local_windows", False))
     if args.func is None:
         sys.exit(f"{args.cmd} is not implemented yet")
     args.func(args)

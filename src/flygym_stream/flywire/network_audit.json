@@ -1,0 +1,113 @@
+{
+  "mode": "REAL CSV NETWORK / INCOMPLETE FAST-TRANSMITTER APPROXIMATION",
+  "metadata_rows": 158262,
+  "neurons": 157789,
+  "explicitly_excluded_non_neuronal_rows": 473,
+  "neurons_with_edges": 153746,
+  "isolated_metadata_rows": 4043,
+  "raw_csv_rows": 3990039,
+  "raw_positive_rows": 3989263,
+  "zero_count_rows": 0,
+  "excluded_non_neuronal_edge_rows": 776,
+  "missing_attribute_neurons": 0,
+  "active_unique_edges": 2329468,
+  "disabled_sources": 39490,
+  "disabled_edge_rows": 950683,
+  "omitted_synapse_count": 5265111.0,
+  "total_neuronal_synapse_count": 23553107.0,
+  "transmitter_class_counts": {
+    "disabled": 47392,
+    "exc": 89219,
+    "inh": 21178
+  },
+  "disabled_presynaptic_labels": {
+    "(blank)": 423,
+    "GLUT": 14802,
+    "glutamate": 8188,
+    "SER": 1321,
+    "HIST": 4133,
+    "histamine": 923,
+    "dopamine": 148,
+    "DA": 6877,
+    "OCT": 1334,
+    "acetylcholine,histamine": 905,
+    "TYR": 78,
+    "tyramine": 92,
+    "serotonin": 82,
+    "dopamine,serotonin": 4,
+    "octopamine": 55,
+    "nitric_oxide": 7,
+    "glutamate,serotonin,tyramine": 8,
+    "dopamine,nitric_oxide": 4,
+    "glutamate,serotonin": 42,
+    "glutamate,tyramine": 6,
+    "glycine": 14,
+    "acetylcholine,glutamate": 26,
+    "dopamine,tyramine": 5,
+    "dopamine,glutamate,serotonin": 6,
+    "acetylcholine,glycine": 2,
+    "acetylcholine,gaba": 3,
+    "glutamate,octopamine": 2
+  },
+  "graph_super_class_counts": {
+    "optic_lobe_intrinsic": 71855,
+    "central_brain_intrinsic": 30759,
+    "sensory": 15076,
+    "ventral_nerve_cord_intrinsic": 12827,
+    "": 10845,
+    "visual_projection": 7225,
+    "ascending": 1847,
+    "descending": 1315,
+    "motor": 805,
+    "sensory_ascending": 507,
+    "visual_centrifugal": 458,
+    "visceral_circulatory": 210,
+    "sensory_descending": 12,
+    "ascending_visceral_circulatory": 5
+  },
+  "populations": {
+    "input_left": {
+      "neurons": 45,
+      "present_in_edges": 45,
+      "with_active_incoming": 45,
+      "with_active_outgoing": 45,
+      "reachable_from_inputs": 45
+    },
+    "input_right": {
+      "neurons": 45,
+      "present_in_edges": 45,
+      "with_active_incoming": 45,
+      "with_active_outgoing": 45,
+      "reachable_from_inputs": 45
+    },
+    "output_left": {
+      "neurons": 1,
+      "present_in_edges": 1,
+      "with_active_incoming": 1,
+      "with_active_outgoing": 1,
+      "reachable_from_inputs": 1
+    },
+    "output_right": {
+      "neurons": 1,
+      "present_in_edges": 1,
+      "with_active_incoming": 1,
+      "with_active_outgoing": 1,
+      "reachable_from_inputs": 1
+    }
+  },
+  "warnings": [
+    "Point-neuron parameters and count-to-conductance scale are uncalibrated.",
+    "Hybrid gait generation bypasses biological VNC-to-muscle control.",
+    "Structural reachability is not evidence of neural activation or behavior.",
+    "Unsupported transmitter outputs are OMITTED, not simulated as neutral physiology."
+  ],
+  "preflight_errors": [],
+  "connectivity_file": {
+    "path": "C:\\Users\\sysco\\Documents\\GitHub\\Flywire-Brain-Model\\Data\\connections_princeton.csv",
+    "bytes": 198079921
+  },
+  "metadata_file": {
+    "path": "C:\\Users\\sysco\\Documents\\GitHub\\Flywire-Brain-Model\\Data\\neurons.csv",
+    "bytes": 21637928
+  }
+}

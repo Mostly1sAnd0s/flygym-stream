@@ -1,0 +1,23 @@
+{
+  "base_config": "hybrid_config.json",
+  "sync_ms": 15.0,
+  "sensory_hz": 100.0,
+  "forward_gain_per_hz": 0.025,
+  "turn_gain_per_hz": 0.0125,
+  "maximum_drive": 1.2,
+  "readouts": {
+    "steer_left": ["720575941535862506", "720575941510475536"],
+    "steer_right": ["720575941432123640", "720575941456897005"],
+    "forward": ["720575941519464046", "720575941572713886"],
+    "groom": ["720575941704434394", "720575941476852254"],
+    "feed": ["720575941410682479", "720575941623285450"]
+  },
+  "annotation_types": {
+    "steer_left": ["DNa01", "DNa02"],
+    "steer_right": ["DNa01", "DNa02"],
+    "forward": ["oDN1", "oDN1"],
+    "groom": ["aDN1", "aDN1"],
+    "feed": ["MN9", "MN9"]
+  },
+  "notes": "Eon-inspired locomotion comparison on the LOCAL export, not an exact Eon reproduction. ORN_DM1 sensory input and transmitter policy inherited from base config; 100 Hz from Eon's public neural benchmark, not a calibrated embodied sensory rate. Gains and positive oDN1 speed mapping are engineering assumptions. Groom/feed are monitored only. No vision, taste, dust, grooming or feeding actuation."
+}

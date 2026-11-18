@@ -1,0 +1,2 @@
+-r requirements-flywire.txt
+cupy-cuda12x>=13,<15

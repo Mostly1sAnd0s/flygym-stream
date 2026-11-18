@@ -44,3 +44,6 @@ markers = [
     "gpu: requires a working GL context / NVIDIA GPU (skip with -m 'not gpu')",
     "network: talks to the live S3 asset bucket (skip with -m 'not network')",
 ]
+
+[tool.setuptools.package-data]
+"flygym_stream.flywire" = ["*.json", "*.md"]
